@@ -4525,7 +4525,7 @@ Instruction *SPIRVToLLVM::transOCLRelational(SPIRVInstruction *I,
 std::unique_ptr<SPIRVModule> readSpirvModule(std::istream &IS,
                                              const SPIRV::TranslatorOpts &Opts,
                                              std::string &ErrMsg) {
-  std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts));
+  std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts)); //TODO: How to implement reverse Vulkan translation
 
   IS >> *BM;
   if (!BM->isModuleValid()) {

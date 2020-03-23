@@ -280,6 +280,10 @@ public:
                                              SPIRVWord Capacity) = 0;
 
   // Instruction creation functions
+  virtual SPIRVInstruction *addAccessChainInst(SPIRVType *, SPIRVValue *,
+                                               std::vector<SPIRVValue *>,
+                                               SPIRVBasicBlock *, bool) = 0;
+
   virtual SPIRVInstruction *addPtrAccessChainInst(SPIRVType *, SPIRVValue *,
                                                   std::vector<SPIRVValue *>,
                                                   SPIRVBasicBlock *, bool) = 0;
@@ -527,7 +531,6 @@ protected:
 private:
   bool IsValid;
 };
-
 
 #ifdef _SPIRV_SUPPORT_TEXT_FMT
 

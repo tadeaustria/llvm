@@ -1,5 +1,6 @@
 add_llvm_library(LLVMSPIRVLib
   LLVMToSPIRVDbgTran.cpp
+  LLVMToSPIRVVulkan.cpp
   Mangler/FunctionDescriptor.cpp
   Mangler/Mangler.cpp
   Mangler/ManglingUtils.cpp

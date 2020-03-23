@@ -3927,10 +3927,10 @@ bool llvm::writeSpirv(Module *M, std::ostream &OS, std::string &ErrMsg) {
   // To preserve old behavior of the translator, let's enable all extensions
   // by default in this API
   DefaultOpts.enableAllExtensions();
-  return llvm::writeSpirv(M, DefaultOpts, OS, ErrMsg);
+  return llvm::writeSpirv(M, DefaultOpts, false, OS, ErrMsg);
 }
 
-bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts,
+bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, bool isVulkan,
                       std::ostream &OS, std::string &ErrMsg) {
   std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts));
   if (!isValidLLVMModule(M, BM->getErrorLog()))
@@ -3942,7 +3942,10 @@ bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts,
   // instruction. It can happen in case of continue operand in the loop.
   if (hasLoopMetadata(M))
     PassMgr.add(createLoopSimplifyPass());
-  PassMgr.add(createLLVMToSPIRV(BM.get()));
+  if (!isVulkan)
+	PassMgr.add(createLLVMToSPIRV(BM.get()));
+  else
+    PassMgr.add(createLLVMToSPIRVVulkan(BM.get()));
   PassMgr.run(*M);
 
   if (BM->getError(ErrMsg) != SPIRVEC_Success)

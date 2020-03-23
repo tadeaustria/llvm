@@ -286,6 +286,9 @@ public:
                                      SPIRVWord Capacity) override;
 
   // Instruction creation functions
+  SPIRVInstruction *addAccessChainInst(SPIRVType *, SPIRVValue *,
+                                       std::vector<SPIRVValue *>,
+                                       SPIRVBasicBlock *, bool) override;
   SPIRVInstruction *addPtrAccessChainInst(SPIRVType *, SPIRVValue *,
                                           std::vector<SPIRVValue *>,
                                           SPIRVBasicBlock *, bool) override;
@@ -1500,6 +1503,17 @@ SPIRVInstruction *SPIRVModuleImpl::addArbFloatPointIntelInst(
 
   return addInstruction(
       SPIRVInstTemplateBase::create(OC, ResTy, getId(), TheOps, BB, this), BB);
+}
+
+SPIRVInstruction *
+SPIRVModuleImpl::addAccessChainInst(SPIRVType *Type, SPIRVValue *Base,
+                                    std::vector<SPIRVValue *> Indices,
+                                    SPIRVBasicBlock *BB, bool IsInBounds) {
+  return addInstruction(
+      SPIRVInstTemplateBase::create(
+          IsInBounds ? OpInBoundsAccessChain : OpAccessChain, Type, getId(),
+          getVec(Base->getId(), Base->getIds(Indices)), BB, this),
+      BB);
 }
 
 SPIRVInstruction *

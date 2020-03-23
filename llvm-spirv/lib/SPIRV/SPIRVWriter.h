@@ -97,7 +97,7 @@ public:
                                       std::vector<SPIRVWord> &Parameters);
 
   // Translation functions
-  bool transAddressingMode();
+  virtual bool transAddressingMode();
   bool transAlign(Value *V, SPIRVValue *BV);
   std::vector<SPIRVWord> transArguments(CallInst *, SPIRVBasicBlock *,
                                         SPIRVEntry *);
@@ -113,7 +113,7 @@ public:
   SPIRVValue *transAsmCallINTEL(CallInst *Call, SPIRVBasicBlock *BB);
   bool transDecoration(Value *V, SPIRVValue *BV);
   SPIRVWord transFunctionControlMask(Function *);
-  SPIRVFunction *transFunctionDecl(Function *F);
+  virtual SPIRVFunction *transFunctionDecl(Function *F);
   void transVectorComputeMetadata(Function *F);
   void transFPGAFunctionMetadata(SPIRVFunction *BF, Function *F);
   bool transGlobalVariables();
@@ -129,10 +129,9 @@ public:
                          bool CreateForward = true,
                          FuncTransMode FuncTrans = FuncTransMode::Decl);
   void transGlobalAnnotation(GlobalVariable *V);
-  SPIRVValue *
-  transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
-                              bool CreateForward = true,
-                              FuncTransMode FuncTrans = FuncTransMode::Decl);
+  virtual SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
+                                                  bool CreateForward = true,
+                                                  FuncTransMode FuncTrans = FuncTransMode::Decl);
   void transGlobalIOPipeStorage(GlobalVariable *V, MDNode *IO);
 
   static SPIRVInstruction *applyRoundingModeConstraint(Value *V,
@@ -142,7 +141,7 @@ public:
   typedef DenseMap<Value *, SPIRVValue *> LLVMToSPIRVValueMap;
   typedef DenseMap<MDNode *, SmallSet<SPIRVId, 2>> LLVMToSPIRVMetadataMap;
 
-private:
+protected:
   Module *M;
   LLVMContext *Ctx;
   SPIRVModule *BM;
@@ -208,7 +207,7 @@ private:
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
                                           SPIRVBasicBlock *BB);
 
-  void transFunction(Function *I);
+  virtual void transFunction(Function *I);
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
   bool isAnyFunctionReachableFromFunction(

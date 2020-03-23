@@ -120,8 +120,8 @@ bool readSpirv(LLVMContext &C, std::istream &IS, Module *&M,
 
 /// \brief Translate LLVM module to SPIR-V and write to ostream.
 /// \returns true if succeeds.
-bool writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, std::ostream &OS,
-                std::string &ErrMsg);
+bool writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, bool isVulkan,
+                std::ostream &OS, std::string &ErrMsg);
 
 /// \brief Load SPIR-V from istream and translate to LLVM module.
 /// \returns true if succeeds.
@@ -160,6 +160,9 @@ void mangleOpenClBuiltin(const std::string &UnmangledName,
 
 /// Create a pass for translating LLVM to SPIR-V.
 ModulePass *createLLVMToSPIRV(SPIRV::SPIRVModule *);
+
+/// Create a pass for translating LLVM to SPIR-V.
+ModulePass *createLLVMToSPIRVVulkan(SPIRV::SPIRVModule *);
 
 /// Create a pass for translating OCL C builtin functions to SPIR-V builtin
 /// functions.
