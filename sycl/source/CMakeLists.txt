@@ -78,11 +78,14 @@ function(add_sycl_rt_library LIB_NAME)
         ${CMAKE_THREAD_LIBS_INIT}
       PUBLIC
         $<$<BOOL:${SYCL_BUILD_PI_CUDA}>:pi_cuda>
+		$<$<BOOL:${SYCL_BUILD_PI_VULKAN}>:pi_vulkan>
   )
 
   target_compile_definitions(${LIB_OBJ_NAME}
     PUBLIC
-      $<$<BOOL:${SYCL_BUILD_PI_CUDA}>:USE_PI_CUDA>)
+      $<$<BOOL:${SYCL_BUILD_PI_CUDA}>:USE_PI_CUDA>
+	  $<$<BOOL:${SYCL_BUILD_PI_VULKAN}>:USE_PI_VULKAN>
+  )
 
   add_common_options(${LIB_NAME})
 
