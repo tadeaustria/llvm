@@ -8105,6 +8105,9 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
     }
     TranslatorArgs.push_back(TCArgs.MakeArgString(ExtArg));
   }
+  if (getToolChain().getTriple().getOS() == llvm::Triple::OSType::Vulkan) {
+    TranslatorArgs.push_back("--vulkan");
+  }
   for (auto I : Inputs) {
     std::string Filename(I.getFilename());
     if (I.getType() == types::TY_Tempfilelist) {
