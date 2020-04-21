@@ -165,6 +165,7 @@ public:
     AMD,
     Mesa,
     SUSE,
+    Vulkan, // Test Vulkan BE
     OpenEmbedded,
     LastVendorType = OpenEmbedded
   };
@@ -194,7 +195,6 @@ public:
     AIX,
     CUDA,       // NVIDIA CUDA
     NVCL,       // NVIDIA OpenCL
-	Vulkan,     // Test Vulkan BE
     AMDHSA,     // AMD HSA Runtime
     PS4,
     ELFIAMCU,

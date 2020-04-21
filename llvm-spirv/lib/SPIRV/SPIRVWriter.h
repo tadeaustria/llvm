@@ -204,8 +204,8 @@ protected:
 
   SPIRVValue *transSpcvCast(CallInst *CI, SPIRVBasicBlock *BB);
   SPIRVValue *oclTransSpvcCastSampler(CallInst *CI, SPIRVBasicBlock *BB);
-  SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
-                                          SPIRVBasicBlock *BB);
+  virtual SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
+                                                  SPIRVBasicBlock *BB);
 
   virtual void transFunction(Function *I);
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);

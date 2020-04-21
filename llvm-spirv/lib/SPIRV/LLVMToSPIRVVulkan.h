@@ -76,6 +76,9 @@ public:
 protected:
   void transFunction(Function *I) override;
 
+  SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
+                                          SPIRVBasicBlock *BB) override;
+
 };
 
 } // Namespace SPIRV

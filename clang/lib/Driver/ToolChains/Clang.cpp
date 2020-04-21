@@ -8105,7 +8105,7 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
     }
     TranslatorArgs.push_back(TCArgs.MakeArgString(ExtArg));
   }
-  if (getToolChain().getTriple().getOS() == llvm::Triple::OSType::Vulkan) {
+  if (getToolChain().getTriple().getVendor() == llvm::Triple::VendorType::Vulkan) {
     TranslatorArgs.push_back("--vulkan");
   }
   for (auto I : Inputs) {

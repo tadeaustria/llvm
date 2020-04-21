@@ -230,6 +230,23 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
 }
 
+SPIRV::SPIRVInstruction *
+LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U, SPIRVBasicBlock *BB) {
+
+  Op BOC = OpNop;
+  if (auto Cast = dyn_cast<AddrSpaceCastInst>(U)) {
+	//Do noop and return translated value of the first operand
+    return reinterpret_cast<SPIRV::SPIRVInstruction *>(getTranslatedValue(U->getOperand(0)));
+  } else {
+    auto OpCode = U->getOpcode();
+    BOC = OpCodeMap::map(OpCode);
+  }
+
+  auto Op = transValue(U->getOperand(0), BB);
+  return BM->addUnaryInst(transBoolOpCode(Op, BOC), transType(U->getType()), Op,
+                          BB);
+}
+
 } // Namespace SPIRV
 
 ModulePass *llvm::createLLVMToSPIRVVulkan(SPIRVModule *SMod) {
