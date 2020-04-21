@@ -286,10 +286,10 @@ namespace pi {
   std::terminate();
 }
 
-void assertion(bool Condition, const char *Message) {
-  if (!Condition)
-    die(Message);
-}
+// void assertion(bool Condition, const char *Message) {
+//  if (!Condition)
+//    die(Message);
+//}
 
 } // namespace pi
 } // namespace detail
@@ -431,21 +431,14 @@ pi_result VLK(piPlatformGetInfo)(pi_platform platform,
   case PI_PLATFORM_INFO_VENDOR:
     return getInfo(param_value_size, param_value, param_value_size_ret, "None");
   case PI_PLATFORM_INFO_VERSION:
-    *param_value_size_ret =
-        snprintf(cast<char *>(param_value), param_value_size, "1.0") + 1;
-    return PI_SUCCESS;
+    return getInfo(param_value_size, param_value, param_value_size_ret,
+                   "Vulkan 1.0");
   case PI_PLATFORM_INFO_EXTENSIONS:
     return getInfo(param_value_size, param_value, param_value_size_ret, "");
   default:
     PI_HANDLE_UNKNOWN_PARAM_NAME(param_name);
   }
   cl::sycl::detail::pi::die("Platform info request not implemented");
-  return {};
-}
-
-/// \TODO Not implemented
-pi_result VLK(piextDeviceConvert)(pi_device *device, void **handle) {
-  cl::sycl::detail::pi::die("vulkan_piextDeviceConvert not implemented");
   return {};
 }
 
@@ -595,9 +588,9 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_MAX_MEM_ALLOC_SIZE: {
     // Max size of memory object allocation in bytes.
-    // The minimum value is max(min(1024 × 1024 ×
+    // The minimum value is max(min(1024 ï¿½ 1024 ï¿½
     // 1024, 1/4th of CL_DEVICE_GLOBAL_MEM_SIZE),
-    // 32 × 1024 × 1024) for devices that are not of type
+    // 32 ï¿½ 1024 ï¿½ 1024) for devices that are not of type
     // CL_DEVICE_TYPE_CUSTOM.
 
     return getInfo(
@@ -923,6 +916,29 @@ pi_result VLK(piDeviceRelease)(pi_device device) {
   return PI_SUCCESS;
 }
 
+/// Gets the native handle of a PI device object.
+///
+/// \param device is the PI device to get the native handle of.
+/// \param nativeHandle is the native handle of device.
+pi_result VLK(piextDeviceGetNativeHandle)(pi_device device,
+                                          pi_native_handle *nativeHandle) {
+  assert(nativeHandle != nullptr);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&device->phDevice);
+  return PI_SUCCESS;
+}
+
+/// Creates PI device object from a native handle.
+/// NOTE: The created PI object takes ownership of the native handle.
+///
+/// \param nativeHandle is the native handle to create PI device from.
+/// \param device is the PI device created from the native handle.
+pi_result VLK(piextDeviceCreateWithNativeHandle)(pi_native_handle nativeHandle,
+                                                 pi_device *device) {
+  cl::sycl::detail::pi::die(
+      "vulkan_piextDeviceCreateWithNativeHandle not implemented");
+  return {};
+}
+
 /// \return If available, the first binary that is Vulkan Compatible
 ///
 pi_result VLK(piextDeviceSelectBinary)(pi_device device,
@@ -1060,6 +1076,29 @@ pi_result VLK(piContextGetInfo)(pi_context context, pi_context_info param_name,
   return PI_OUT_OF_RESOURCES;
 }
 
+NOT_IMPL(pi_result VLK(piextContextSetExtendedDeleter),
+         (pi_context context, pi_context_extended_deleter func,
+          void *user_data))
+
+/// Gets the native handle of a PI context object.
+///
+/// \param context is the PI context to get the native handle of.
+/// \param nativeHandle is the native handle of context.
+pi_result VLK(piextContextGetNativeHandle)(pi_context context,
+                                           pi_native_handle *nativeHandle) {
+  assert(nativeHandle != nullptr);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&context->device);
+  return PI_SUCCESS;
+}
+
+/// Creates PI context object from a native handle.
+/// NOTE: The created PI object takes ownership of the native handle.
+///
+/// \param nativeHandle is the native handle to create PI context from.
+/// \param context is the PI context created from the native handle.
+NOT_IMPL(pi_result VLK(piextContextCreateWithNativeHandle),
+         (pi_native_handle nativeHandle, pi_context *context))
+
 pi_result VLK(piContextRetain)(pi_context context) {
   context->refCounter_++;
   return PI_SUCCESS;
@@ -1160,6 +1199,25 @@ pi_result VLK(piQueueFinish)(pi_queue command_queue) {
   commandBuffer->end();*/
   return PI_ERROR_UNKNOWN;
 }
+
+/// Gets the native handle of a PI queue object.
+///
+/// \param queue is the PI queue to get the native handle of.
+/// \param nativeHandle is the native handle of queue.
+pi_result VLK(piextQueueGetNativeHandle)(pi_queue queue,
+                                         pi_native_handle *nativeHandle) {
+  assert(nativeHandle != nullptr);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&queue->queue);
+  return PI_SUCCESS;
+}
+
+/// Creates PI queue object from a native handle.
+/// NOTE: The created PI object takes ownership of the native handle.
+///
+/// \param nativeHandle is the native handle to create PI queue from.
+/// \param queue is the PI queue created from the native handle.
+NOT_IMPL(pi_result VLK(piextQueueCreateWithNativeHandle),
+         (pi_native_handle nativeHandle, pi_queue *queue))
 
 pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                                  size_t size, void *host_ptr, pi_mem *ret_mem) {
@@ -1312,15 +1370,24 @@ pi_result VLK(piMemBufferPartition)(pi_mem buffer, pi_mem_flags flags,
   return {};
 }
 
-/// \TODO Not implemented
-pi_result VLK(piextProgramConvert)(
-    pi_context context,  ///< [in] the PI context of the program
-    pi_program *program, ///< [in,out] the pointer to PI program
-    void **handle)       ///< [in,out] the pointer to the raw program handle
-{
-  cl::sycl::detail::pi::die("VLK(piextProgramConvert) not implemented");
-  return {};
+/// Gets the native handle of a PI mem object.
+///
+/// \param mem is the PI mem to get the native handle of.
+/// \param nativeHandle is the native handle of mem.
+pi_result VLK(piextMemGetNativeHandle)(pi_mem mem, pi_native_handle *nativeHandle) {
+  assert(nativeHandle != nullptr);
+  *nativeHandle =
+      reinterpret_cast<pi_native_handle>(&mem->memory); // Or return Buffer?
+  return PI_SUCCESS;
 }
+
+/// Creates PI mem object from a native handle.
+/// NOTE: The created PI object takes ownership of the native handle.
+///
+/// \param nativeHandle is the native handle to create PI mem from.
+/// \param mem is the PI mem created from the native handle.
+NOT_IMPL(pi_result VLK(piextMemCreateWithNativeHandle),
+         (pi_native_handle nativeHandle, pi_mem *mem))
 
 pi_result VLK(piProgramCreate)(pi_context context, const void *il,
                                size_t length, pi_program *ret_program) {
@@ -1522,6 +1589,25 @@ pi_result VLK(piextProgramSetSpecializationConstant)(pi_program prog,
   return {};
 }
 
+/// Gets the native handle of a PI program object.
+///
+/// \param program is the PI program to get the native handle of.
+/// \param nativeHandle is the native handle of program.
+pi_result VLK(piextProgramGetNativeHandle)(pi_program program,
+                                           pi_native_handle *nativeHandle) {
+  assert(nativeHandle != nullptr);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&program->module);
+  return PI_SUCCESS;
+}
+
+/// \TODO Not implemented
+pi_result VLK(piextProgramCreateWithNativeHandle)(pi_native_handle nativeHandle,
+                                                  pi_program *program) {
+  cl::sycl::detail::pi::die(
+      "VLK(piextProgramCreateWithNativeHandle) not implemented");
+  return {};
+}
+
 pi_result VLK(piKernelCreate)(pi_program program, const char *kernel_name,
                               pi_kernel *ret_kernel) {
 
@@ -1709,6 +1795,10 @@ NOT_IMPL(pi_result VLK(piEventSetStatus),
          (pi_event event, pi_int32 execution_status))
 NOT_IMPL(pi_result VLK(piEventRetain), (pi_event event))
 NOT_IMPL(pi_result VLK(piEventRelease), (pi_event event))
+NOT_IMPL(pi_result VLK(piextEventGetNativeHandle),
+         (pi_event event, pi_native_handle *nativeHandle))
+NOT_IMPL(pi_result VLK(piextEventCreateWithNativeHandle),
+         (pi_native_handle nativeHandle, pi_event *event))
 NOT_IMPL(pi_result VLK(piSamplerCreate),
          (pi_context context, const pi_sampler_properties *sampler_properties,
           pi_sampler *result_sampler))
@@ -2006,12 +2096,14 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piPlatformsGet, VLK(piPlatformsGet))
   _PI_CL(piPlatformGetInfo, VLK(piPlatformGetInfo))
   // Device
-  _PI_CL(piextDeviceConvert, VLK(piextDeviceConvert))
   _PI_CL(piDevicesGet, VLK(piDevicesGet))
   _PI_CL(piDeviceGetInfo, VLK(piDeviceGetInfo))
   _PI_CL(piDevicePartition, VLK(piDevicePartition))
   _PI_CL(piDeviceRetain, VLK(piDeviceRetain))
   _PI_CL(piDeviceRelease, VLK(piDeviceRelease))
+  _PI_CL(piextDeviceGetNativeHandle, VLK(piextDeviceGetNativeHandle))
+  _PI_CL(piextDeviceCreateWithNativeHandle,
+         VLK(piextDeviceCreateWithNativeHandle))
   _PI_CL(piextDeviceSelectBinary, VLK(piextDeviceSelectBinary))
   _PI_CL(piextGetDeviceFunctionPointer, VLK(piextGetDeviceFunctionPointer))
   // Context
@@ -2019,12 +2111,18 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piContextGetInfo, VLK(piContextGetInfo))
   _PI_CL(piContextRetain, VLK(piContextRetain))
   _PI_CL(piContextRelease, VLK(piContextRelease))
+  _PI_CL(piextContextGetNativeHandle, VLK(piextContextGetNativeHandle))
+  _PI_CL(piextContextCreateWithNativeHandle,
+         VLK(piextContextCreateWithNativeHandle))
   // Queue
   _PI_CL(piQueueCreate, VLK(piQueueCreate))
   _PI_CL(piQueueGetInfo, VLK(piQueueGetInfo))
   _PI_CL(piQueueFinish, VLK(piQueueFinish))
   _PI_CL(piQueueRetain, VLK(piQueueRetain))
   _PI_CL(piQueueRelease, VLK(piQueueRelease))
+  _PI_CL(piextQueueGetNativeHandle, VLK(piextQueueGetNativeHandle))
+  _PI_CL(piextQueueCreateWithNativeHandle,
+         VLK(piextQueueCreateWithNativeHandle))
   // Memory
   _PI_CL(piMemBufferCreate, VLK(piMemBufferCreate))
   _PI_CL(piMemImageCreate, VLK(piMemImageCreate))
@@ -2033,8 +2131,10 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piMemRetain, VLK(piMemRetain))
   _PI_CL(piMemRelease, VLK(piMemRelease))
   _PI_CL(piMemBufferPartition, VLK(piMemBufferPartition))
+  _PI_CL(piextMemGetNativeHandle, VLK(piextMemGetNativeHandle))
+  _PI_CL(piextMemCreateWithNativeHandle,
+         VLK(piextMemCreateWithNativeHandle))
   // Program
-  _PI_CL(piextProgramConvert, VLK(piextProgramConvert))
   _PI_CL(piProgramCreate, VLK(piProgramCreate))
   _PI_CL(piclProgramCreateWithSource, VLK(piclProgramCreateWithSource))
   _PI_CL(piclProgramCreateWithBinary, VLK(piclProgramCreateWithBinary))
@@ -2047,7 +2147,9 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piProgramRelease, VLK(piProgramRelease))
   _PI_CL(piextProgramSetSpecializationConstant,
          VLK(piextProgramSetSpecializationConstant))
-
+  _PI_CL(piextProgramGetNativeHandle, VLK(piextProgramGetNativeHandle))
+  _PI_CL(piextProgramCreateWithNativeHandle,
+         VLK(piextProgramCreateWithNativeHandle))
   // Kernel
   _PI_CL(piKernelCreate, VLK(piKernelCreate))
   _PI_CL(piKernelSetArg, VLK(piKernelSetArg))
@@ -2068,6 +2170,9 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piEventSetStatus, VLK(piEventSetStatus))
   _PI_CL(piEventRetain, VLK(piEventRetain))
   _PI_CL(piEventRelease, VLK(piEventRelease))
+  _PI_CL(piextEventGetNativeHandle, VLK(piextEventGetNativeHandle))
+  _PI_CL(piextEventCreateWithNativeHandle,
+         VLK(piextEventCreateWithNativeHandle))
   // Sampler
   _PI_CL(piSamplerCreate, VLK(piSamplerCreate))
   _PI_CL(piSamplerGetInfo, VLK(piSamplerGetInfo))
