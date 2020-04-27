@@ -3159,6 +3159,108 @@ void Sema::CheckSYCLKernelCall(FunctionDecl *KernelFunc, SourceRange CallLoc,
     KernelFunc->setInvalidDecl();
 }
 
+static FunctionDecl *
+CreateVulkanKernelDeclaration(ASTContext &Context, StringRef Name,
+                              ArrayRef<ParamDesc> ParamDescs, llvm::SmallVectorImpl<ValueDecl*> *ParamOut) {
+
+  DeclContext *DC = Context.getTranslationUnitDecl();
+  QualType RetTy = Context.VoidTy;
+  SmallVector<QualType, 0> ArgTys;
+
+  // Extract argument types from the descriptor array:
+  /*std::transform(
+      ParamDescs.begin(), ParamDescs.end(), std::back_inserter(ArgTys),
+      [](const ParamDesc &PD) -> QualType { return std::get<0>(PD); });*/
+  FunctionProtoType::ExtProtoInfo Info(CC_OpenCLKernel);
+  QualType FuncTy = Context.getFunctionType(RetTy, ArgTys, Info);
+  DeclarationName DN = DeclarationName(&Context.Idents.get(Name));
+
+  FunctionDecl *VulkanKernel = FunctionDecl::Create(
+      Context, DC, SourceLocation(), SourceLocation(), DN, FuncTy,
+      Context.getTrivialTypeSourceInfo(RetTy), SC_None);
+
+  // llvm::SmallVector<ParmVarDecl *, 16> Params;
+  for (const auto &PD : ParamDescs) {
+    /*auto P = ParmVarDecl::Create(Context, VulkanKernel, SourceLocation(),
+                                 SourceLocation(), std::get<1>(PD),
+                                 std::get<0>(PD), std::get<2>(PD), SC_None, 0);
+    P->setScopeInfo(0, i++);*/
+    auto P = VarDecl::Create(Context, DC, SourceLocation(), SourceLocation(),
+                             std::get<1>(PD), std::get<0>(PD), std::get<2>(PD),
+                             SC_None);
+    P->setIsUsed();
+    P->addAttr(SYCLDeviceAttr::CreateImplicit(Context));
+    DC->addDecl(P);
+    ParamOut->push_back(P);
+    // Params.push_back(P);
+  }
+  // VulkanKernel->setParams(Params);
+
+  VulkanKernel->addAttr(OpenCLKernelAttr::CreateImplicit(Context));
+  VulkanKernel->addAttr(AsmLabelAttr::CreateImplicit(Context, Name));
+  VulkanKernel->addAttr(ArtificialAttr::CreateImplicit(Context));
+
+  // Add kernel to translation unit to see it in AST-dump
+  DC->addDecl(VulkanKernel);
+  return VulkanKernel;
+}
+
+
+void Sema::ConstructVulkanKernel(FunctionDecl *KernelCallerFunc,
+                                 MangleContext &MC) {
+
+  CXXRecordDecl *LE = getKernelObjectType(KernelCallerFunc);
+  assert(LE && "invalid kernel caller");
+
+  // Build list of kernel arguments
+  llvm::SmallVector<ParamDesc, 16> ParamDescs;
+  if (!buildArgTysVulkan(getASTContext(), LE, ParamDescs))
+    return;
+
+  // Extract name from kernel caller parameters and mangle it.
+  const TemplateArgumentList *TemplateArgs =
+      KernelCallerFunc->getTemplateSpecializationArgs();
+  assert(TemplateArgs && "No template argument info");
+  QualType KernelNameType = TypeName::getFullyQualifiedType(
+      TemplateArgs->get(0).getAsType(), getASTContext(), true);
+
+  std::string Name;
+  // TODO SYCLIntegrationHeader also computes a unique stable name. It should
+  // probably lose this responsibility and only use the name provided here.
+  if (getLangOpts().SYCLUnnamedLambda)
+    Name = PredefinedExpr::ComputeName(
+        getASTContext(), PredefinedExpr::UniqueStableNameExpr, KernelNameType);
+  else
+    Name = constructKernelName(KernelNameType, MC);
+
+  // TODO Maybe don't emit integration header inside the Sema?
+  populateIntHeader(getSyclIntegrationHeader(), Name, KernelNameType, LE);
+
+  llvm::SmallVector<ValueDecl*, 16> ParamOut;
+  FunctionDecl *OpenVulkanKernel = CreateVulkanKernelDeclaration(
+      getASTContext(), Name, ParamDescs, &ParamOut);
+
+  ContextRAII FuncContext(*this, OpenVulkanKernel);
+
+  // Let's copy source location of a functor/lambda to emit nicer diagnostics
+  OpenVulkanKernel->setLocation(LE->getLocation());
+
+  // If the source function is implicitly inline, the kernel should be marked
+  // such as well. This allows the kernel to be ODR'd if there are multiple uses
+  // in different translation units.
+  OpenVulkanKernel->setImplicitlyInline(KernelCallerFunc->isInlined());
+
+  ConstructingOpenCLKernel = true;
+  CompoundStmt *VulkanKernelBody = CreateVulkanKernelBody(
+      *this, KernelCallerFunc, OpenVulkanKernel, ParamOut);
+  ConstructingOpenCLKernel = false;
+  OpenVulkanKernel->setBody(VulkanKernelBody);
+  for(auto &decl : ParamOut) {
+    addSyclDeviceDecl(decl);
+  }
+  addSyclDeviceDecl(OpenVulkanKernel);
+}
+
 // Generates the OpenCL kernel using KernelCallerFunc (kernel caller
 // function) defined is SYCL headers.
 // Generated OpenCL kernel contains the body of the kernel caller function,
@@ -3183,6 +3285,13 @@ void Sema::CheckSYCLKernelCall(FunctionDecl *KernelFunc, SourceRange CallLoc,
 //
 void Sema::ConstructOpenCLKernel(FunctionDecl *KernelCallerFunc,
                                  MangleContext &MC) {
+
+  if (getASTContext().getTargetInfo().getTriple().getVendor() ==
+        llvm::Triple::VendorType::Vulkan) {
+    ConstructVulkanKernel(KernelCallerFunc, MC);
+    return;
+  }
+
   // The first argument to the KernelCallerFunc is the lambda object.
   const CXXRecordDecl *KernelObj = getKernelObjectType(KernelCallerFunc);
   assert(KernelObj && "invalid kernel caller");
