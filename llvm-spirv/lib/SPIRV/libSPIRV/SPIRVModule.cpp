@@ -224,6 +224,7 @@ public:
   // Type creation functions
   template <class T> T *addType(T *Ty);
   SPIRVTypeArray *addArrayType(SPIRVType *, SPIRVConstant *) override;
+  SPIRVTypeRuntimeArray *addRuntimeArrayType(SPIRVType *) override;
   SPIRVTypeBool *addBoolType() override;
   SPIRVTypeFloat *addFloatType(unsigned BitWidth) override;
   SPIRVTypeFunction *addFunctionType(SPIRVType *,
@@ -811,6 +812,10 @@ SPIRVTypeVoid *SPIRVModuleImpl::addVoidType() {
 SPIRVTypeArray *SPIRVModuleImpl::addArrayType(SPIRVType *ElementType,
                                               SPIRVConstant *Length) {
   return addType(new SPIRVTypeArray(this, getId(), ElementType, Length));
+}
+
+SPIRVTypeRuntimeArray *SPIRVModuleImpl::addRuntimeArrayType(SPIRVType *ElementType) {
+  return addType(new SPIRVTypeRuntimeArray(this, getId(), ElementType));
 }
 
 SPIRVTypeBool *SPIRVModuleImpl::addBoolType() {

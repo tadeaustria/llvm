@@ -63,6 +63,7 @@ class SPIRVFunction;
 class SPIRVInstruction;
 class SPIRVType;
 class SPIRVTypeArray;
+class SPIRVTypeRuntimeArray;
 class SPIRVTypeBool;
 class SPIRVTypeFloat;
 class SPIRVTypeFunction;
@@ -219,6 +220,7 @@ public:
 
   // Type creation functions
   virtual SPIRVTypeArray *addArrayType(SPIRVType *, SPIRVConstant *) = 0;
+  virtual SPIRVTypeRuntimeArray *addRuntimeArrayType(SPIRVType *) = 0;
   virtual SPIRVTypeBool *addBoolType() = 0;
   virtual SPIRVTypeFloat *addFloatType(unsigned) = 0;
   virtual SPIRVTypeFunction *
