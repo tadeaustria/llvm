@@ -72,6 +72,7 @@ public:
   bool transAddressingMode() override;
   SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
                                           bool CreateForward) override;
+  SPIRVType *transType(Type *T) override;
 
 protected:
   void transFunction(Function *I) override;

@@ -249,7 +249,8 @@ public:
   }
   SPIRVStorageClassKind getStorageClass() const { return ElemStorageClass; }
   SPIRVCapVec getRequiredCapability() const override {
-    auto Cap = getVec(CapabilityAddresses);
+    //auto Cap = getVec(CapabilityAddresses); //due to SPIRV specification pointers do not need Address capability...
+    SPIRVCapVec Cap;
     if (getElementType()->isTypeFloat(16))
       Cap.push_back(CapabilityFloat16Buffer);
     auto C = getCapability(ElemStorageClass);

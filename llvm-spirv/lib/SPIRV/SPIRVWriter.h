@@ -88,7 +88,7 @@ public:
   // In 'Pointer' mode we generate OpConstFunctionPointerINTEL constant instead.
   enum class FuncTransMode { Decl, Pointer };
 
-  SPIRVType *transType(Type *T);
+  virtual SPIRVType *transType(Type *T);
   SPIRVType *transSPIRVOpaqueType(Type *T);
 
   SPIRVValue *getTranslatedValue(const Value *) const;

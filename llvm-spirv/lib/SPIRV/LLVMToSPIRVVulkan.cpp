@@ -183,6 +183,36 @@ bool LLVMToSPIRVVulkan::transAddressingMode() {
   return true;
 }
 
+SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
+
+  if (auto ST = dyn_cast<StructType>(T)) {
+    assert(ST->isSized());
+
+    /*for (unsigned I = 0, E = T->getStructNumElements(); I != E; ++I) {
+      auto *ElemTy = ST->getElementType(I);
+      if ((isa<StructType>(ElemTy) || isa<SequentialType>(ElemTy) ||
+           isa<PointerType>(ElemTy)) &&
+          recursiveType(ST, ElemTy))
+        ForwardRefs.push_back(I);
+      else
+        Struct->setMemberType(I, transType(ST->getElementType(I)));
+    */
+  } else if (auto Pt = dyn_cast<PointerType>(T)) {
+    if (Pt->getElementType()->isPointerTy()) {
+      auto subtype = static_cast<llvm::PointerType *>(Pt->getElementType());
+      auto subsubtype = subtype->getElementType();
+      auto addrspace = SPIRSPIRVAddrSpaceMap::map(
+          static_cast<SPIRAddressSpace>(Pt->getAddressSpace()));
+
+      return mapType(
+          T, BM->addPointerType(
+                 addrspace, BM->addRuntimeArrayType(transType(subsubtype))));
+    }
+  }
+
+  return LLVMToSPIRV::transType(T);
+}
+
 /// An instruction may use an instruction from another BB which has not been
 /// translated. SPIRVForward should be created as place holder for these
 /// instructions and replaced later by the real instructions.
@@ -225,27 +255,46 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     return mapValue(V, BM->addAccessChainInst(transType(GEP->getType()),
                                               TransPointerOperand, Indices, BB,
                                               GEP->isInBounds()));
+    }// else if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
+    //  // In Vulkan there a no global pointers. In shaders variable array can
+    //  be
+    //  // used replace a global pointer with a global variable array
+    //  auto type = GV->getType();
+    //  if (type->isPointerTy() && type->getElementType()->isPointerTy()) {
+    //    auto subtype = static_cast<llvm::PointerType
+    //    *>(type->getElementType()); auto subsubtype =
+    //    subtype->getElementType(); auto addrspace =
+    //    SPIRSPIRVAddrSpaceMap::map(
+    //        static_cast<SPIRAddressSpace>(type->getAddressSpace()));
+    //    auto BVar = static_cast<SPIRVVariable *>(BM->addVariable(
+    //        BM->addPointerType(addrspace,
+    //                           BM->addRuntimeArrayType(transType(subsubtype))),
+    //        GV->isConstant(), transLinkageType(GV), nullptr,
+    //        GV->getName().str(), addrspace, nullptr));
+    //    return mapValue(V, BVar);
+    //  }
+    //}
+
+    return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
   }
 
-  return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
-}
+  SPIRV::SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(
+      UnaryInstruction * U, SPIRVBasicBlock * BB) {
 
-SPIRV::SPIRVInstruction *
-LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U, SPIRVBasicBlock *BB) {
+    Op BOC = OpNop;
+    if (auto Cast = dyn_cast<AddrSpaceCastInst>(U)) {
+      // Do noop and return translated value of the first operand
+      return reinterpret_cast<SPIRV::SPIRVInstruction *>(
+          getTranslatedValue(U->getOperand(0)));
+    } else {
+      auto OpCode = U->getOpcode();
+      BOC = OpCodeMap::map(OpCode);
+    }
 
-  Op BOC = OpNop;
-  if (auto Cast = dyn_cast<AddrSpaceCastInst>(U)) {
-	//Do noop and return translated value of the first operand
-    return reinterpret_cast<SPIRV::SPIRVInstruction *>(getTranslatedValue(U->getOperand(0)));
-  } else {
-    auto OpCode = U->getOpcode();
-    BOC = OpCodeMap::map(OpCode);
+    auto Op = transValue(U->getOperand(0), BB);
+    return BM->addUnaryInst(transBoolOpCode(Op, BOC), transType(U->getType()),
+                            Op, BB);
   }
-
-  auto Op = transValue(U->getOperand(0), BB);
-  return BM->addUnaryInst(transBoolOpCode(Op, BOC), transType(U->getType()), Op,
-                          BB);
-}
 
 } // Namespace SPIRV
 
