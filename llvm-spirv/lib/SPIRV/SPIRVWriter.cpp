@@ -3932,7 +3932,7 @@ bool llvm::writeSpirv(Module *M, std::ostream &OS, std::string &ErrMsg) {
 
 bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, bool isVulkan,
                       std::ostream &OS, std::string &ErrMsg) {
-  std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts));
+  std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts, isVulkan));
   if (!isValidLLVMModule(M, BM->getErrorLog()))
     return false;
 
@@ -3943,7 +3943,7 @@ bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, bool isVulka
   if (hasLoopMetadata(M))
     PassMgr.add(createLoopSimplifyPass());
   if (!isVulkan)
-	PassMgr.add(createLLVMToSPIRV(BM.get()));
+	  PassMgr.add(createLLVMToSPIRV(BM.get()));
   else
     PassMgr.add(createLLVMToSPIRVVulkan(BM.get()));
   PassMgr.run(*M);

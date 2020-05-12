@@ -102,7 +102,8 @@ public:
   typedef std::map<SPIRVCapabilityKind, SPIRVCapability *> SPIRVCapMap;
 
   static SPIRVModule *createSPIRVModule();
-  static SPIRVModule *createSPIRVModule(const SPIRV::TranslatorOpts &);
+  static SPIRVModule *createSPIRVModule(const SPIRV::TranslatorOpts &,
+                                        bool UseVulkan = false);
   SPIRVModule();
   virtual ~SPIRVModule();
 

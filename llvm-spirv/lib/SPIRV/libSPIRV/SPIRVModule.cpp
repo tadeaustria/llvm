@@ -63,19 +63,22 @@ SPIRVModule::~SPIRVModule() {}
 
 class SPIRVModuleImpl : public SPIRVModule {
 public:
-  SPIRVModuleImpl()
+  SPIRVModuleImpl(bool UseVulkan = false)
       : SPIRVModule(), NextId(1),
-        SPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_0)),
+        SPIRVVersion(static_cast<SPIRVWord>(UseVulkan ? VersionNumber::SPIRV_1_3 : VersionNumber::SPIRV_1_0)),
         GeneratorId(SPIRVGEN_KhronosLLVMSPIRVTranslator), GeneratorVer(0),
         InstSchema(SPIRVISCH_Default), SrcLang(SourceLanguageOpenCL_C),
-        SrcLangVer(102000) {
+        SrcLangVer(102000), UseVulkan(UseVulkan) {
     AddrModel = sizeof(size_t) == 32 ? AddressingModelPhysical32
                                      : AddressingModelPhysical64;
     // OpenCL memory model requires Kernel capability
-    setMemoryModel(MemoryModelOpenCL);
+    if (UseVulkan)
+      setMemoryModel(MemoryModelGLSL450);
+    else
+      setMemoryModel(MemoryModelOpenCL);
   }
 
-  SPIRVModuleImpl(const SPIRV::TranslatorOpts &Opts) : SPIRVModuleImpl() {
+  SPIRVModuleImpl(const SPIRV::TranslatorOpts &Opts, bool useVulkan = false) : SPIRVModuleImpl(useVulkan) {
     TranslationOpts = Opts;
   }
 
@@ -466,6 +469,7 @@ private:
   std::set<std::string> SPIRVExt;
   SPIRVAddressingModelKind AddrModel;
   SPIRVMemoryModelKind MemoryModel;
+  bool UseVulkan;
 
   typedef std::map<SPIRVId, SPIRVEntry *> SPIRVIdToEntryMap;
   typedef std::set<SPIRVEntry *> SPIRVEntrySet;
@@ -1628,9 +1632,12 @@ SPIRVInstruction *SPIRVModuleImpl::addVariable(
     return addInstruction(Variable, BB);
 
   add(Variable);
-  if (LinkageTy != internal::LinkageTypeInternal)
-    Variable->setLinkageType(LinkageTy);
-  Variable->setIsConstant(IsConstant);
+  // Vulkan does not support Linkage nor Constant decorations
+  if (!UseVulkan) {
+    if (LinkageTy != internal::LinkageTypeInternal)
+      Variable->setLinkageType(LinkageTy);
+    Variable->setIsConstant(IsConstant);
+  }
   return Variable;
 }
 
@@ -1965,8 +1972,8 @@ std::istream &operator>>(std::istream &I, SPIRVModule &M) {
 
 SPIRVModule *SPIRVModule::createSPIRVModule() { return new SPIRVModuleImpl(); }
 
-SPIRVModule *SPIRVModule::createSPIRVModule(const SPIRV::TranslatorOpts &Opts) {
-  return new SPIRVModuleImpl(Opts);
+SPIRVModule *SPIRVModule::createSPIRVModule(const SPIRV::TranslatorOpts &Opts, bool useVulkan) {
+  return new SPIRVModuleImpl(Opts, useVulkan);
 }
 
 SPIRVValue *SPIRVModuleImpl::getValue(SPIRVId TheId) const {

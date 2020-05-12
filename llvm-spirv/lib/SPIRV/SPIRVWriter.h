@@ -98,7 +98,7 @@ public:
 
   // Translation functions
   virtual bool transAddressingMode();
-  bool transAlign(Value *V, SPIRVValue *BV);
+  virtual bool transAlign(Value *V, SPIRVValue *BV);
   std::vector<SPIRVWord> transArguments(CallInst *, SPIRVBasicBlock *,
                                         SPIRVEntry *);
   bool transSourceLanguage();
@@ -111,7 +111,7 @@ public:
   SPIRVValue *transIndirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
   SPIRVValue *transAsmINTEL(InlineAsm *Asm);
   SPIRVValue *transAsmCallINTEL(CallInst *Call, SPIRVBasicBlock *BB);
-  bool transDecoration(Value *V, SPIRVValue *BV);
+  virtual bool transDecoration(Value *V, SPIRVValue *BV);
   SPIRVWord transFunctionControlMask(Function *);
   virtual SPIRVFunction *transFunctionDecl(Function *F);
   void transVectorComputeMetadata(Function *F);
@@ -208,7 +208,7 @@ protected:
                                                   SPIRVBasicBlock *BB);
 
   virtual void transFunction(Function *I);
-  SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+  virtual SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
   bool isAnyFunctionReachableFromFunction(
       const Function *FS,
