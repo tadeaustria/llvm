@@ -2118,6 +2118,14 @@ public:
     setHasNoType();
   }
 
+  // Copy Sized needs Adresses Capability
+  // https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#OpCopyMemorySized
+  SPIRVCapVec getRequiredCapability() const override {
+    auto cap = SPIRVInstruction::getRequiredCapability();
+    cap.push_back(CapabilityAddresses);
+    return cap;
+  }
+
   SPIRVValue *getSource() { return getValue(Source); }
   SPIRVValue *getTarget() { return getValue(Target); }
   SPIRVValue *getSize() { return getValue(Size); }
