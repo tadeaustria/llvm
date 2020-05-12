@@ -39,6 +39,7 @@
 #ifndef LLVMTOSPIRVVULKAN_H
 #define LLVMTOSPIRVVULKAN_H
 
+#include "SPIRVWriter.h"
 #include "OCLTypeToSPIRV.h"
 #include "OCLUtil.h"
 #include "SPIRVBasicBlock.h"
@@ -49,7 +50,6 @@
 #include "SPIRVModule.h"
 #include "SPIRVType.h"
 #include "SPIRVValue.h"
-#include "SPIRVWriter.h"
 
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -72,7 +72,9 @@ public:
   bool transAddressingMode() override;
   SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
                                           bool CreateForward) override;
+  virtual bool transDecoration(Value *V, SPIRVValue *BV) override;
   SPIRVType *transType(Type *T) override;
+  bool transAlign(Value *V, SPIRVValue *BV) override;
 
 protected:
   void transFunction(Function *I) override;
@@ -80,6 +82,10 @@ protected:
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
                                           SPIRVBasicBlock *BB) override;
 
+  bool isSkippable(Value *V, SPIRVBasicBlock *BB, SPIRVValue **alternative);
+  SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+
+  bool inParameterStructure = false;
 };
 
 } // Namespace SPIRV

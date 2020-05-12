@@ -168,7 +168,7 @@ template <> inline void SPIRVMap<SPIRVCapabilityKind, SPIRVCapVec>::init() {
   ADD_VEC_INIT(CapabilityImageRect, {CapabilitySampledRect});
   ADD_VEC_INIT(CapabilitySampledRect, {CapabilityShader});
   ADD_VEC_INIT(CapabilityGenericPointer, {CapabilityAddresses});
-  ADD_VEC_INIT(CapabilityInt8, {CapabilityKernel});
+  //ADD_VEC_INIT(CapabilityInt8, {CapabilityKernel}); // this is not true, that Int8 required Kernel due to https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(CapabilityInputAttachment, {CapabilityShader});
   ADD_VEC_INIT(CapabilitySparseResidency, {CapabilityShader});
   ADD_VEC_INIT(CapabilityMinLod, {CapabilityShader});
