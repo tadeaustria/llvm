@@ -39,7 +39,6 @@
 #ifndef LLVMTOSPIRVVULKAN_H
 #define LLVMTOSPIRVVULKAN_H
 
-#include "SPIRVWriter.h"
 #include "OCLTypeToSPIRV.h"
 #include "OCLUtil.h"
 #include "SPIRVBasicBlock.h"
@@ -50,6 +49,7 @@
 #include "SPIRVModule.h"
 #include "SPIRVType.h"
 #include "SPIRVValue.h"
+#include "SPIRVWriter.h"
 
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -68,15 +68,23 @@ public:
 
   virtual StringRef getPassName() const override { return "LLVMToSPIRVVulkan"; }
 
-  SPIRVFunction *transFunctionDecl(Function *F) override;
-  bool transAddressingMode() override;
-  SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
-                                          bool CreateForward) override;
-  virtual bool transDecoration(Value *V, SPIRVValue *BV) override;
   SPIRVType *transType(Type *T) override;
+
+  bool transAddressingMode() override;
   bool transAlign(Value *V, SPIRVValue *BV) override;
 
+  SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic,
+                                 SPIRVBasicBlock *BB) override;
+  SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB) override;
+  bool transDecoration(Value *V, SPIRVValue *BV) override;
+  SPIRVFunction *transFunctionDecl(Function *F) override;
+  SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
+                                          bool CreateForward) override;
+
 protected:
+  std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
+                                    SPIRVBasicBlock *BB,
+                                    SPIRVEntry *Entry) override;
   void transFunction(Function *I) override;
 
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,

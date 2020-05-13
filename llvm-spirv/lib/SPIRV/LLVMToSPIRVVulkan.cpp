@@ -91,13 +91,13 @@ void LLVMToSPIRVVulkan::transFunction(Function *I) {
   SPIRVFunction *BF = transFunctionDecl(I);
   // Creating all basic blocks before creating any instruction.
   for (auto &FI : *I) {
-    transValue(&FI, nullptr);
+    LLVMToSPIRV::transValue(&FI, nullptr);
   }
   for (auto &FI : *I) {
-    SPIRVBasicBlock *BB =
-        static_cast<SPIRVBasicBlock *>(transValue(&FI, nullptr));
+    SPIRVBasicBlock *BB = static_cast<SPIRVBasicBlock *>(
+        LLVMToSPIRV::transValue(&FI, nullptr));
     for (auto &BI : FI) {
-      transValue(&BI, BB, false);
+      LLVMToSPIRV::transValue(&BI, BB, false);
     }
   }
 
@@ -132,8 +132,12 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   BF->setFunctionControlMask(transFunctionControlMask(F));
   if (F->hasName())
     BM->setName(BF, F->getName().str());
-  if (oclIsKernel(F))
+  if (oclIsKernel(F)) {
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
+    // FIXME: Make execution mode variable
+    BF->addExecutionMode(BM->add(new SPIRVExecutionMode(
+        BF, ExecutionMode::ExecutionModeLocalSize, 1, 1, 1)));
+  }
   // Vulkan no linkage decorations
   // else if (F->getLinkage() != GlobalValue::InternalLinkage)
   //  BF->setLinkageType(transLinkageType(F));
@@ -145,17 +149,17 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     if (I->hasName())
       BM->setName(BA, I->getName().str());
     // Vulkan/Shaders support no Function Parameter decorations
-    //if (I->hasByValAttr())
+    // if (I->hasByValAttr())
     //  BA->addAttr(FunctionParameterAttributeByVal);
-    //if (I->hasNoAliasAttr())
+    // if (I->hasNoAliasAttr())
     //  BA->addAttr(FunctionParameterAttributeNoAlias);
-    //if (I->hasNoCaptureAttr())
+    // if (I->hasNoCaptureAttr())
     //  BA->addAttr(FunctionParameterAttributeNoCapture);
-    //if (I->hasStructRetAttr())
+    // if (I->hasStructRetAttr())
     //  BA->addAttr(FunctionParameterAttributeSret);
-    //if (Attrs.hasAttribute(ArgNo + 1, Attribute::ZExt))
+    // if (Attrs.hasAttribute(ArgNo + 1, Attribute::ZExt))
     //  BA->addAttr(FunctionParameterAttributeZext);
-    //if (Attrs.hasAttribute(ArgNo + 1, Attribute::SExt))
+    // if (Attrs.hasAttribute(ArgNo + 1, Attribute::SExt))
     //  BA->addAttr(FunctionParameterAttributeSext);
     if (BM->isAllowedToUseVersion(VersionNumber::SPIRV_1_1) &&
         Attrs.hasAttribute(ArgNo + 1, Attribute::Dereferenceable))
@@ -163,9 +167,9 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
                       Attrs.getAttribute(ArgNo + 1, Attribute::Dereferenceable)
                           .getDereferenceableBytes());
   }
-  //if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::ZExt))
+  // if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::ZExt))
   //  BF->addDecorate(DecorationFuncParamAttr, FunctionParameterAttributeZext);
-  //if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::SExt))
+  // if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::SExt))
   //  BF->addDecorate(DecorationFuncParamAttr, FunctionParameterAttributeSext);
   if (Attrs.hasFnAttribute("referenced-indirectly")) {
     assert(!oclIsKernel(F) &&
@@ -179,8 +183,10 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
 
 bool LLVMToSPIRVVulkan::transAddressingMode() {
   BM->setAddressingModel(AddressingModelLogical);
-  //BM->setMemoryModel(MemoryModelGLSL450);
-  //BM->setSPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_3));
+  BM->addCapability(CapabilityVariablePointersStorageBuffer);
+  BM->addExtension(ExtensionID::SPV_KHR_variable_pointers);
+  // BM->setMemoryModel(MemoryModelGLSL450);
+  // BM->setSPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_3));
   return true;
 }
 
@@ -230,32 +236,21 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                                            SPIRVBasicBlock *BB,
                                                            bool CreateForward) {
 
-  SPIRVValue *alternative = nullptr;
-  if (isSkippable(V, BB, &alternative)) {
-    if (alternative)
-      return mapValue(V, alternative);
+  SPIRVValue *Alternative = nullptr;
+  if (isSkippable(V, BB, &Alternative)) {
+    if (Alternative)
+      return mapValue(V, Alternative);
     SPIRVDBG(dbgs() << "[skipped] " << '\n')
-    return alternative;
+    return Alternative;
   }
 
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
     std::vector<SPIRVValue *> Indices;
     for (unsigned I = 0, E = GEP->getNumIndices(); I != E; ++I)
-      Indices.push_back(transValue(GEP->getOperand(I + 1), BB));
-    auto pointerType = cast<PointerType>(GEP->getPointerOperand()->getType());
-    auto *TransPointerOperand = transValue(GEP->getPointerOperand(), BB);
-    if (pointerType->getElementType()->isStructTy() &&
-        pointerType->getElementType()->getStructName().find("_arg_") !=
-            std::string::npos) {
-      SPIRVValue *x = Indices[Indices.size() - 1];
-      if (auto constant = reinterpret_cast<SPIRVConstant *>(x)) {
-        if (constant->getZExtIntValue() == 3) {
-          Indices.push_back(
-              BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
-        }
-      }
-    }
-
+      Indices.push_back(
+          LLVMToSPIRV::transValue(GEP->getOperand(I + 1), BB));
+    auto *TransPointerOperand =
+        LLVMToSPIRV::transValue(GEP->getPointerOperand(), BB);
     // Certain array-related optimization hints can be expressed via
     // LLVM metadata. For the purpose of linking this metadata with
     // the accessed array variables, our GEP may have been marked into
@@ -281,12 +276,102 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       IndexGroupArrayMap[IndexGroup] = TransPointerOperand->getId();
     }
 
-    return mapValue(V, BM->addAccessChainInst(transType(GEP->getType()),
-                                              TransPointerOperand, Indices, BB,
-                                              GEP->isInBounds()));
+    auto TypePointer = cast<PointerType>(GEP->getPointerOperand()->getType());
+    if (TypePointer->getElementType()->isStructTy()) {
+      if (TypePointer->getElementType()->getStructName().find("_arg_") !=
+          std::string::npos) {
+        SPIRVValue *x = Indices[Indices.size() - 1];
+        if (auto constant = reinterpret_cast<SPIRVConstant *>(x)) {
+          if (constant->getZExtIntValue() == 3) {
+            Indices.push_back(
+                BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
+          }
+        }
+      }
+      // Remove First Index due to difference in AccessChain and PtrAccessChain
+      // The first index in PtrAccessChain is dereferencing the Pointer, this is
+      // already implicit in AccessChain
+      Indices.erase(Indices.begin());
+      return mapValue(V, BM->addAccessChainInst(transType(GEP->getType()),
+                                                TransPointerOperand, Indices,
+                                                BB, GEP->isInBounds()));
+    } else {
+      return mapValue(
+          V, BM->addPtrAccessChainInst(
+                 transType(GEP->getType()), TransPointerOperand, Indices, BB,
+                 /*isInbounds*/ false)); // Vulkan does not allow
+                                         // PtrAccessInbounds, since Address
+                                         // Capability is not supported
+    }
   }
-  
+
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
+}
+
+std::vector<SPIRVWord>
+LLVMToSPIRVVulkan::transValue(const std::vector<Value *> &Args,
+                              SPIRVBasicBlock *BB, SPIRVEntry *Entry) {
+  std::vector<SPIRVWord> Operands;
+  for (size_t I = 0, E = Args.size(); I != E; ++I) {
+    if (Entry->isOperandLiteral(I)) {
+      Operands.push_back(cast<ConstantInt>(Args[I])->getZExtValue());
+    } else {
+      auto Value = LLVMToSPIRV::transValue(Args[I], BB);
+      if (Value->isVariable() || !Value->getType()->isTypePointer()) {
+        Operands.push_back(Value->getId());
+      } else {
+        // Function calls only allow Memory Object Declaration, see
+        // https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#MemoryObjectDeclaration
+        // if operand is non Object, create local variable and use it instead
+        // but copy back is needed at the end, maybe
+        auto NewValue = BM->addVariable(
+            Value->getType(), false, SPIRVLinkageTypeKind::LinkageTypeInternal,
+            /*Initializer*/ nullptr, /*Name*/ "",
+            SPIRVStorageClassKind::StorageClassFunction, BB);
+        BM->addCopyMemoryInst(NewValue, Value,
+                              std::vector<SPIRVWord>(1, MemoryAccessMaskNone),
+                              BB);
+        Operands.push_back(NewValue->getId());
+      }
+    }
+  }
+  return Operands;
+}
+
+SPIRVValue *LLVMToSPIRVVulkan::transDirectCallInst(CallInst *CI,
+                                                   SPIRVBasicBlock *BB) {
+  SPIRVExtInstSetKind ExtSetKind = SPIRVEIS_Count;
+  SPIRVWord ExtOp = SPIRVWORD_MAX;
+  llvm::Function *F = CI->getCalledFunction();
+  auto MangledName = F->getName();
+  StringRef DemangledName;
+
+  if (MangledName.startswith(SPCV_CAST) || MangledName == SAMPLER_INIT)
+    return oclTransSpvcCastSampler(CI, BB);
+
+  if (oclIsBuiltin(MangledName, DemangledName) ||
+      isDecoratedSPIRVFunc(F, DemangledName)) {
+    if (auto BV = transBuiltinToConstant(DemangledName, CI))
+      return BV;
+    if (auto BV = transBuiltinToInst(DemangledName, CI, BB))
+      return BV;
+  }
+
+  SmallVector<std::string, 2> Dec;
+  if (isBuiltinTransToExtInst(CI->getCalledFunction(), &ExtSetKind, &ExtOp,
+                              &Dec))
+    return addDecorations(
+        BM->addExtInst(
+            transType(CI->getType()), BM->getExtInstSetId(ExtSetKind), ExtOp,
+            transArguments(CI, BB,
+                           SPIRVEntry::createUnique(ExtSetKind, ExtOp).get()),
+            BB),
+        Dec);
+
+  return BM->addCallInst(
+      transFunctionDecl(CI->getCalledFunction()),
+      transArguments(CI, BB, SPIRVEntry::createUnique(OpFunctionCall).get()),
+      BB);
 }
 
 SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U,
@@ -302,9 +387,68 @@ SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U,
     BOC = OpCodeMap::map(OpCode);
   }
 
-  auto Op = transValue(U->getOperand(0), BB);
+  auto Op = LLVMToSPIRV::transValue(U->getOperand(0), BB);
   return BM->addUnaryInst(transBoolOpCode(Op, BOC), transType(U->getType()), Op,
                           BB);
+}
+
+SPIRVValue *LLVMToSPIRVVulkan::transIntrinsicInst(IntrinsicInst *II,
+                                                  SPIRVBasicBlock *BB) {
+  switch (II->getIntrinsicID()) {
+  case Intrinsic::memcpy:
+    return BM->addCopyMemoryInst(
+        LLVMToSPIRV::transValue(II->getOperand(0), BB),
+        LLVMToSPIRV::transValue(II->getOperand(1), BB),
+        GetIntrinsicMemoryAccess(cast<MemIntrinsic>(II)), BB);
+
+  case Intrinsic::memset: {
+    // Generally there is no direct mapping of memset to SPIR-V.  But it turns
+    // out that memset is emitted by Clang for initialization in default
+    // constructors so we need some basic support.  The code below only handles
+    // cases with constant value and constant length.
+    MemSetInst *MSI = cast<MemSetInst>(II);
+    Value *Val = MSI->getValue();
+    if (!isa<Constant>(Val)) {
+      assert(!"Can't translate llvm.memset with non-const `value` argument");
+      return nullptr;
+    }
+    Value *Len = MSI->getLength();
+    if (!isa<ConstantInt>(Len)) {
+      assert(!"Can't translate llvm.memset with non-const `length` argument");
+      return nullptr;
+    }
+    uint64_t NumElements = static_cast<ConstantInt *>(Len)->getZExtValue();
+    auto *AT = ArrayType::get(Val->getType(), NumElements);
+    SPIRVTypeArray *CompositeTy = static_cast<SPIRVTypeArray *>(transType(AT));
+    SPIRVValue *Init;
+    if (cast<Constant>(Val)->isZeroValue()) {
+      Init = BM->addNullConstant(CompositeTy);
+    } else {
+      // On 32-bit systems, size_type of std::vector is not a 64-bit type. Let's
+      // assume that we won't encounter memset for more than 2^32 elements and
+      // insert explicit cast to avoid possible warning/error about narrowing
+      // conversion
+      auto TNumElts =
+          static_cast<std::vector<SPIRVValue *>::size_type>(NumElements);
+      std::vector<SPIRVValue *> Elts(TNumElts,
+                                     LLVMToSPIRV::transValue(Val, BB));
+      Init = BM->addCompositeConstant(CompositeTy, Elts);
+    }
+    SPIRVType *VarTy = transType(PointerType::get(AT, SPIRV::SPIRAS_Constant));
+    SPIRVValue *Var =
+        BM->addVariable(VarTy, /*isConstant*/ true, spv::LinkageTypeInternal,
+                        Init, "", StorageClassUniformConstant, nullptr);
+    SPIRVType *SourceTy =
+        transType(PointerType::get(Val->getType(), SPIRV::SPIRAS_Constant));
+    SPIRVValue *Source = BM->addUnaryInst(OpBitcast, SourceTy, Var, BB);
+    SPIRVValue *Target = LLVMToSPIRV::transValue(MSI->getRawDest(), BB);
+    return BM->addCopyMemoryInst(Target, Source, GetIntrinsicMemoryAccess(MSI),
+                                 BB);
+  } break;
+
+  default:
+    return LLVMToSPIRV::transIntrinsicInst(II, BB);
+  }
 }
 
 bool LLVMToSPIRVVulkan::transDecoration(Value *V, SPIRVValue *BV) {
@@ -312,12 +456,12 @@ bool LLVMToSPIRVVulkan::transDecoration(Value *V, SPIRVValue *BV) {
 }
 
 // Vulkan allows no allignment decoration (Cap Kernel)
-bool LLVMToSPIRVVulkan::transAlign(Value *V, SPIRVValue *BV) {
-  return true;
-}
+bool LLVMToSPIRVVulkan::transAlign(Value *V, SPIRVValue *BV) { return true; }
 
-// Vulkan only allows internal linkage, since Capability Linkage is not supported
-SPIRVLinkageTypeKind LLVMToSPIRVVulkan::transLinkageType(const GlobalValue *GV) {
+// Vulkan only allows internal linkage, since Capability Linkage is not
+// supported
+SPIRVLinkageTypeKind
+LLVMToSPIRVVulkan::transLinkageType(const GlobalValue *GV) {
   return SPIRVLinkageTypeKind::LinkageTypeInternal;
 }
 
