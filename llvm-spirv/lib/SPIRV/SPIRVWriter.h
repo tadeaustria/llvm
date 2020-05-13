@@ -105,9 +105,9 @@ public:
   bool transExtension();
   bool transBuiltinSet();
   bool isKnownIntrinsic(Intrinsic::ID Id);
-  SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic, SPIRVBasicBlock *BB);
+  virtual SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic, SPIRVBasicBlock *BB);
   SPIRVValue *transCallInst(CallInst *Call, SPIRVBasicBlock *BB);
-  SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
+  virtual SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
   SPIRVValue *transIndirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
   SPIRVValue *transAsmINTEL(InlineAsm *Asm);
   SPIRVValue *transAsmCallINTEL(CallInst *Call, SPIRVBasicBlock *BB);
@@ -166,7 +166,7 @@ protected:
   llvm::IntegerType *getSizetType(unsigned AS = 0);
   std::vector<SPIRVValue *> transValue(const std::vector<Value *> &Values,
                                        SPIRVBasicBlock *BB);
-  std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
+  virtual std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
                                     SPIRVBasicBlock *BB, SPIRVEntry *Entry);
   SPIRVInstruction *transBinaryInst(BinaryOperator *B, SPIRVBasicBlock *BB);
   SPIRVInstruction *transCmpInst(CmpInst *Cmp, SPIRVBasicBlock *BB);
@@ -209,6 +209,8 @@ protected:
 
   virtual void transFunction(Function *I);
   virtual SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+
+  static std::vector<SPIRVWord> LLVMToSPIRV::GetIntrinsicMemoryAccess(MemIntrinsic *MI);
 
   bool isAnyFunctionReachableFromFunction(
       const Function *FS,

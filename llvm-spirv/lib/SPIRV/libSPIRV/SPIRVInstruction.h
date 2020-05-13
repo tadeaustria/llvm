@@ -2082,9 +2082,12 @@ protected:
   }
 
   void validate() const override {
-    assert((getValueType(Id) == getValueType(Source)) && "Inconsistent type");
-    assert(getValueType(Id)->isTypePointer() && "Invalid type");
-    assert(!(getValueType(Id)->getPointerElementType()->isTypeVoid()) &&
+    assert(getValueType(Target)->isTypePointer() && "Invalid type");
+    assert(getValueType(Source)->isTypePointer() && "Invalid type");
+    assert((getValueType(Target)->getPointerElementType() ==
+            getValueType(Source)->getPointerElementType()) &&
+           "Unequal element type");
+    assert(!(getValueType(Target)->getPointerElementType()->isTypeVoid()) &&
            "Invalid type");
     SPIRVInstruction::validate();
   }

@@ -2249,26 +2249,45 @@ static SPIRVWord getBuiltinIdForIntrinsic(Intrinsic::ID IID) {
   }
 }
 
+std::vector<SPIRVWord> LLVMToSPIRV::GetIntrinsicMemoryAccess(MemIntrinsic *MI) {
+  std::vector<SPIRVWord> MemoryAccess(1, MemoryAccessMaskNone);
+  if (SPIRVWord AlignVal = MI->getDestAlignment()) {
+    MemoryAccess[0] |= MemoryAccessAlignedMask;
+    if (auto MTI = dyn_cast<MemTransferInst>(MI)) {
+      SPIRVWord SourceAlignVal = MTI->getSourceAlignment();
+      assert(SourceAlignVal && "Missed Source alignment!");
+
+      // In a case when alignment of source differs from dest one
+      // least value is guaranteed anyway.
+      AlignVal = std::min(AlignVal, SourceAlignVal);
+    }
+    MemoryAccess.push_back(AlignVal);
+  }
+  if (MI->isVolatile())
+    MemoryAccess[0] |= MemoryAccessVolatileMask;
+  return MemoryAccess;
+}
+
 SPIRVValue *LLVMToSPIRV::transIntrinsicInst(IntrinsicInst *II,
                                             SPIRVBasicBlock *BB) {
-  auto GetMemoryAccess = [](MemIntrinsic *MI) -> std::vector<SPIRVWord> {
-    std::vector<SPIRVWord> MemoryAccess(1, MemoryAccessMaskNone);
-    if (SPIRVWord AlignVal = MI->getDestAlignment()) {
-      MemoryAccess[0] |= MemoryAccessAlignedMask;
-      if (auto MTI = dyn_cast<MemTransferInst>(MI)) {
-        SPIRVWord SourceAlignVal = MTI->getSourceAlignment();
-        assert(SourceAlignVal && "Missed Source alignment!");
+  //auto GetMemoryAccess = [](MemIntrinsic *MI) -> std::vector<SPIRVWord> {
+  //  std::vector<SPIRVWord> MemoryAccess(1, MemoryAccessMaskNone);
+  //  if (SPIRVWord AlignVal = MI->getDestAlignment()) {
+  //    MemoryAccess[0] |= MemoryAccessAlignedMask;
+  //    if (auto MTI = dyn_cast<MemTransferInst>(MI)) {
+  //      SPIRVWord SourceAlignVal = MTI->getSourceAlignment();
+  //      assert(SourceAlignVal && "Missed Source alignment!");
 
-        // In a case when alignment of source differs from dest one
-        // least value is guaranteed anyway.
-        AlignVal = std::min(AlignVal, SourceAlignVal);
-      }
-      MemoryAccess.push_back(AlignVal);
-    }
-    if (MI->isVolatile())
-      MemoryAccess[0] |= MemoryAccessVolatileMask;
-    return MemoryAccess;
-  };
+  //      // In a case when alignment of source differs from dest one
+  //      // least value is guaranteed anyway.
+  //      AlignVal = std::min(AlignVal, SourceAlignVal);
+  //    }
+  //    MemoryAccess.push_back(AlignVal);
+  //  }
+  //  if (MI->isVolatile())
+  //    MemoryAccess[0] |= MemoryAccessVolatileMask;
+  //  return MemoryAccess;
+  //};
 
   // LLVM intrinsics with known translation to SPIR-V are handled here. They
   // also must be registered at isKnownIntrinsic function in order to make
@@ -2560,13 +2579,13 @@ SPIRVValue *LLVMToSPIRV::transIntrinsicInst(IntrinsicInst *II,
     SPIRVValue *Source = BM->addUnaryInst(OpBitcast, SourceTy, Var, BB);
     SPIRVValue *Target = transValue(MSI->getRawDest(), BB);
     return BM->addCopyMemorySizedInst(Target, Source, CompositeTy->getLength(),
-                                      GetMemoryAccess(MSI), BB);
+                                      GetIntrinsicMemoryAccess(MSI), BB);
   } break;
   case Intrinsic::memcpy:
     return BM->addCopyMemorySizedInst(
         transValue(II->getOperand(0), BB), transValue(II->getOperand(1), BB),
         transValue(II->getOperand(2), BB),
-        GetMemoryAccess(cast<MemIntrinsic>(II)), BB);
+        GetIntrinsicMemoryAccess(cast<MemIntrinsic>(II)), BB);
   case Intrinsic::lifetime_start:
   case Intrinsic::lifetime_end: {
     Op OC = (II->getIntrinsicID() == Intrinsic::lifetime_start)
