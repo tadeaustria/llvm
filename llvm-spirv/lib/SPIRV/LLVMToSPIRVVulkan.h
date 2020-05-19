@@ -84,7 +84,8 @@ public:
 protected:
   std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
                                     SPIRVBasicBlock *BB,
-                                    SPIRVEntry *Entry) override;
+                                    SPIRVEntry *Entry,
+                                    std::vector<std::pair<SPIRVValue*, SPIRVValue*>> &CopyBack);
   void transFunction(Function *I) override;
 
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
@@ -94,6 +95,8 @@ protected:
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
   bool inParameterStructure = false;
+
+  SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
 };
 
 } // Namespace SPIRV

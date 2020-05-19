@@ -285,6 +285,11 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
           if (constant->getZExtIntValue() == 3) {
             Indices.push_back(
                 BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
+            Indices.erase(Indices.begin());
+            return mapValue(
+                V, BM->addAccessChainInst(
+                       transType(GEP->getType()->getPointerElementType()),
+                       TransPointerOperand, Indices, BB, GEP->isInBounds()));
           }
         }
       }
@@ -304,20 +309,32 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                          // Capability is not supported
     }
   }
+  if (LoadInst *LD = dyn_cast<LoadInst>(V)) {
+    auto TargetTy = LD->getType();
+    auto SourceBaseTy = LD->getPointerOperandType()->getPointerElementType();
+    if (TargetTy->isPointerTy() && TargetTy->getPointerAddressSpace() == 1 &&
+        SourceBaseTy->isStructTy() &&
+        SourceBaseTy->getStructName().find("_arg_") != std::string::npos) {
+      // Well this is a special case, for the data pointer
+      return mapValue(V, LLVMToSPIRV::transValue(LD->getPointerOperand(), BB));
+    }
+  }
 
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
 }
 
 std::vector<SPIRVWord>
 LLVMToSPIRVVulkan::transValue(const std::vector<Value *> &Args,
-                              SPIRVBasicBlock *BB, SPIRVEntry *Entry) {
+                              SPIRVBasicBlock *BB, SPIRVEntry *Entry,
+                              std::vector<std::pair<SPIRVValue *, SPIRVValue *>> &CopyBack) {
   std::vector<SPIRVWord> Operands;
   for (size_t I = 0, E = Args.size(); I != E; ++I) {
     if (Entry->isOperandLiteral(I)) {
       Operands.push_back(cast<ConstantInt>(Args[I])->getZExtValue());
     } else {
       auto Value = LLVMToSPIRV::transValue(Args[I], BB);
-      if (Value->isVariable() || !Value->getType()->isTypePointer()) {
+      if (Value->isVariable() || !Value->getType()->isTypePointer() ||
+          Value->getType()->getPointerStorageClass() == SPIRVStorageClassKind::StorageClassStorageBuffer) {
         Operands.push_back(Value->getId());
       } else {
         // Function calls only allow Memory Object Declaration, see
@@ -331,6 +348,7 @@ LLVMToSPIRVVulkan::transValue(const std::vector<Value *> &Args,
         BM->addCopyMemoryInst(NewValue, Value,
                               std::vector<SPIRVWord>(1, MemoryAccessMaskNone),
                               BB);
+        CopyBack.emplace_back(Value, NewValue);
         Operands.push_back(NewValue->getId());
       }
     }
@@ -356,10 +374,11 @@ SPIRVValue *LLVMToSPIRVVulkan::transDirectCallInst(CallInst *CI,
     if (auto BV = transBuiltinToInst(DemangledName, CI, BB))
       return BV;
   }
-
+  std::vector<std::pair<SPIRVValue *, SPIRVValue *>> CopyBack;
   SmallVector<std::string, 2> Dec;
   if (isBuiltinTransToExtInst(CI->getCalledFunction(), &ExtSetKind, &ExtOp,
                               &Dec))
+    // TODO: Think about also copy back for this one...
     return addDecorations(
         BM->addExtInst(
             transType(CI->getType()), BM->getExtInstSetId(ExtSetKind), ExtOp,
@@ -368,10 +387,16 @@ SPIRVValue *LLVMToSPIRVVulkan::transDirectCallInst(CallInst *CI,
             BB),
         Dec);
 
-  return BM->addCallInst(
+  auto CallInst = BM->addCallInst(
       transFunctionDecl(CI->getCalledFunction()),
-      transArguments(CI, BB, SPIRVEntry::createUnique(OpFunctionCall).get()),
+      transValue(getArguments(CI), BB,
+                 SPIRVEntry::createUnique(OpFunctionCall).get(), CopyBack),
       BB);
+  for (auto &Pair : CopyBack) {
+    BM->addCopyMemoryInst(Pair.first, Pair.second,
+                          std::vector<SPIRVWord>(1, MemoryAccessMaskNone), BB);
+  }
+  return CallInst;
 }
 
 SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U,
@@ -392,15 +417,74 @@ SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U,
                           BB);
 }
 
+SPIRVValue *LLVMToSPIRVVulkan::transOrigin(Value *V, SPIRVBasicBlock *BB) {
+
+  // Follow the Value back to the original value, without any
+  // bit- or addressspacecasts
+  if (auto Cast = dyn_cast<CastInst>(V)) {
+    return transOrigin(Cast->getOperand(0), BB);
+  }
+
+  return LLVMToSPIRV::transValue(V, BB);
+}
+
 SPIRVValue *LLVMToSPIRVVulkan::transIntrinsicInst(IntrinsicInst *II,
                                                   SPIRVBasicBlock *BB) {
   switch (II->getIntrinsicID()) {
-  case Intrinsic::memcpy:
-    return BM->addCopyMemoryInst(
-        LLVMToSPIRV::transValue(II->getOperand(0), BB),
-        LLVMToSPIRV::transValue(II->getOperand(1), BB),
-        GetIntrinsicMemoryAccess(cast<MemIntrinsic>(II)), BB);
+  case Intrinsic::memcpy: {
+    // Memcopy in LLVM is quite stupid. It seems copying works only with
+    // integer8 pointers (char pointers) as target and source. If a more complex
+    // object is copied, it is casted to integer pointers and memory length is
+    // hardcoded depending on the object. But SPIRV has the possibility to copy
+    // complex objects by type without any length operand.
+    // But since LLVM already has casted the object we need to find the original
+    // object
+    // TODO: Cast expressions already emitted, this unnecessary code should be
+    // terminted
+    auto Target = transOrigin(II->getOperand(0), BB);
+    auto Source = transOrigin(II->getOperand(1), BB);
 
+    if (Target->getType()->getPointerElementType() !=
+        Source->getType()->getPointerElementType()) {
+      // Yet again, LLVM does unwanted optimizations when working with
+      // structures If the first element of a structure is a operand in copying,
+      // they skip accessing the first element and directly use the struct
+      // pointer as first element pointer. Because of this, we have to cross
+      // look if source/target types are different if they match the
+      // first element in their structure with the other type
+      // if so add an extra accessing operation
+      SPIRVType *Target1Type = nullptr;
+      SPIRVType *Source1Type = nullptr;
+      if (Target->getType()->getPointerElementType()->isTypeStruct())
+        Target1Type =
+            Target->getType()->getPointerElementType()->getStructMemberType(0);
+      if (Source->getType()->getPointerElementType()->isTypeStruct())
+        Source1Type =
+            Source->getType()->getPointerElementType()->getStructMemberType(0);
+
+      std::vector<SPIRVValue *> Indices;
+      Indices.push_back(BM->getLiteralAsConstant(0));
+
+      if (Target1Type == Source->getType()->getPointerElementType()) {
+        Target = BM->addAccessChainInst(
+            BM->addPointerType(Target->getType()->getPointerStorageClass(),
+                               Target1Type),
+            Target, Indices, BB, true);
+      } else if (Source1Type == Target->getType()->getPointerElementType()) {
+        Source = BM->addAccessChainInst(
+            BM->addPointerType(Source->getType()->getPointerStorageClass(),
+                               Source1Type),
+            Source, Indices, BB, true);
+      }
+    }
+
+    assert(Target->getType()->getPointerElementType() ==
+               Source->getType()->getPointerElementType() &&
+           "Unequal types for memory copy");
+
+    return BM->addCopyMemoryInst(
+        Target, Source, GetIntrinsicMemoryAccess(cast<MemIntrinsic>(II)), BB);
+  }
   case Intrinsic::memset: {
     // Generally there is no direct mapping of memset to SPIR-V.  But it turns
     // out that memset is emitted by Clang for initialization in default
