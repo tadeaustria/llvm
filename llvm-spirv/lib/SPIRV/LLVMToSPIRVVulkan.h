@@ -82,16 +82,16 @@ public:
                                           bool CreateForward) override;
 
 protected:
-  std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
-                                    SPIRVBasicBlock *BB,
-                                    SPIRVEntry *Entry,
-                                    std::vector<std::pair<SPIRVValue*, SPIRVValue*>> &CopyBack);
+  std::vector<SPIRVWord>
+  transValue(const std::vector<Value *> &Values, SPIRVBasicBlock *BB,
+             SPIRVEntry *Entry,
+             std::vector<std::pair<SPIRVValue *, SPIRVValue *>> &CopyBack);
   void transFunction(Function *I) override;
 
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
                                           SPIRVBasicBlock *BB) override;
 
-  bool isSkippable(Value *V, SPIRVBasicBlock *BB, SPIRVValue **alternative);
+  bool isSkippable(Value *V, SPIRVBasicBlock *BB, SPIRVValue **Alternative);
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
   bool inParameterStructure = false;

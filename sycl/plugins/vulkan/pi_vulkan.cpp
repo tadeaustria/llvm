@@ -272,7 +272,7 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
 } // anonymous namespace
 
 /// ------ Error handling, matching OpenCL plugin semantics.
-namespace cl {
+__SYCL_INLINE_NAMESPACE(cl) {
 namespace sycl {
 namespace detail {
 namespace pi {
@@ -294,20 +294,20 @@ namespace pi {
 } // namespace pi
 } // namespace detail
 } // namespace sycl
-} // namespace cl
+} // __SYCL_INLINE_NAMESPACE(cl)
 
-pi_result _pi_kernel::addArgument(pi_uint32 arg_index, pi_mem memobj) {
+pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
 
-  if (descriptorSetLayoutBinding.size() <= arg_index) {
-    descriptorSetLayoutBinding.resize(arg_index + 1);
-    arguments.resize(arg_index + 1);
+  if (DescriptorSetLayoutBinding.size() <= ArgIndex) {
+    DescriptorSetLayoutBinding.resize(ArgIndex + 1);
+    Arguments.resize(ArgIndex + 1);
   }
 
-  descriptorSetLayoutBinding[arg_index] = {
-      arg_index, vk::DescriptorType::eStorageBuffer, 1,
+  DescriptorSetLayoutBinding[ArgIndex] = {
+      ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
       vk::ShaderStageFlagBits::eCompute};
 
-  arguments[arg_index] = memobj;
+  Arguments[ArgIndex] = Memobj;
 
   return PI_SUCCESS;
 }
@@ -328,10 +328,10 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
                               pi_uint32 *num_platforms) {
 
   try {
-    static std::once_flag initFlag;
-    static pi_uint32 numPlatforms = 1;
+    static std::once_flag InitFlag;
+    static pi_uint32 NumPlatforms = 1;
     // global Vulkan Instance
-    static _pi_platform platform;
+    static _pi_platform Platform;
 
     if (num_entries == 0 && platforms != nullptr) {
       return PI_INVALID_VALUE;
@@ -343,10 +343,10 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
     pi_result err = PI_SUCCESS;
 
     std::call_once(
-        initFlag,
+        InitFlag,
         [](pi_result &err) {
           /*               if (cuInit(0) != VLK(SUCCESS) {
-                           numPlatforms = 0;
+                           NumPlatforms = 0;
                            return;
                          }*/
 
@@ -355,12 +355,12 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
                                               1, VK_API_VERSION_1_2);
 
           // initialize the vk::InstanceCreateInfo
-          char *list[2];
-          // list[0] = "VK_LAYER_LUNARG_api_dump";
-          // list[1] = "VK_LAYER_KHRONOS_validation ";
+          char *List[2];
+          // List[0] = "VK_LAYER_LUNARG_api_dump";
+          // List[1] = "VK_LAYER_KHRONOS_validation ";
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo, 0,
-                                                    list);
-          platform.instance_ = vk::createInstance(instanceCreateInfo);
+                                                    List);
+          Platform.Instance_ = vk::createInstance(instanceCreateInfo);
 
           /*VkApplicationInfo applInfo = {
               .sType =
@@ -377,7 +377,7 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           // int numDevices = 0;
           // err = PI_CHECK_ERROR(cuDeviceGetCount(&numDevices));
           // if (numDevices == 0) {
-          //  numPlatforms = 0;
+          //  NumPlatforms = 0;
           //  return;
           //}
           // try {
@@ -401,11 +401,11 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
         err);
 
     if (num_platforms != nullptr) {
-      *num_platforms = numPlatforms;
+      *num_platforms = NumPlatforms;
     }
 
     if (platforms != nullptr) {
-      *platforms = &platform;
+      *platforms = &Platform;
     }
 
     return err;
@@ -447,13 +447,13 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
                             pi_uint32 num_entries, pi_device *devices,
                             pi_uint32 *num_devices) {
   /*VkResult result = vkEnumeratePhysicalDevices(
-      platform->instance_, num_devices, cast<VkPhysicalDevice *>(devices));*/
-  auto devices_vec = platform->instance_.enumeratePhysicalDevices();
+      Platform->Instance_, num_devices, cast<VkPhysicalDevice *>(devices));*/
+  auto DevicesVec = platform->Instance_.enumeratePhysicalDevices();
 
-  auto relevant_devices =
-      std::remove_if(devices_vec.begin(), devices_vec.end(),
-                     [device_type](vk::PhysicalDevice &device) {
-                       switch (device.getProperties().deviceType) {
+  auto RelevantDevicesEnd =
+      std::remove_if(DevicesVec.begin(), DevicesVec.end(),
+                     [device_type](vk::PhysicalDevice &Device) {
+                       switch (Device.getProperties().deviceType) {
                        case vk::PhysicalDeviceType::eCpu:
                          if (!(device_type & PI_DEVICE_TYPE_CPU))
                            return true;
@@ -470,33 +470,37 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
                        return false;
                      });
 
-  uint32_t maxEntries = std::min<uint32_t>(num_entries, devices_vec.size());
-  for (uint32_t i = 0; i < maxEntries; i++) {
-    devices[i] = new _pi_device();
-    devices[i]->phDevice = std::move(devices_vec[i]);
-    devices[i]->platform_ = platform;
+  uint32_t SizeRelevantDevices =
+      std::distance(DevicesVec.begin(), RelevantDevicesEnd);
+  if (devices) {
+    uint32_t MaxEntries =
+        std::min<uint32_t>(num_entries, SizeRelevantDevices);
+    std::vector<vk::PhysicalDevice>::iterator Device = DevicesVec.begin();
+    for (uint32_t i = 0; i < MaxEntries; i++, Device++) {
+      devices[i] = new _pi_device(*Device, platform);
+    }
   }
   if (num_devices) {
-    *num_devices = maxEntries;
+    *num_devices = SizeRelevantDevices;
   }
   return PI_SUCCESS;
 }
 
-pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
+pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
                                size_t param_value_size, void *param_value,
                                size_t *param_value_size_ret) {
-  auto properties = device->phDevice.getProperties();
-  auto chain = device->phDevice.getProperties2<
+  auto Properties = Device->PhDevice.getProperties();
+  auto Chain = Device->PhDevice.getProperties2<
       vk::PhysicalDeviceProperties2, vk::PhysicalDeviceMaintenance3Properties,
       vk::PhysicalDeviceShaderCorePropertiesAMD>();
 
-  static constexpr pi_uint32 max_work_item_dimensions = 3u;
+  static constexpr pi_uint32 MaxWorkItemDims = 3u;
 
-  assert(device != nullptr);
+  assert(Device != nullptr);
 
   switch (param_name) {
   case PI_DEVICE_INFO_TYPE: {
-    switch (properties.deviceType) {
+    switch (Properties.deviceType) {
     case vk::PhysicalDeviceType::eDiscreteGpu:
     case vk::PhysicalDeviceType::eIntegratedGpu:
     case vk::PhysicalDeviceType::eVirtualGpu:
@@ -511,31 +515,31 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_VENDOR_ID: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   properties.vendorID);
+                   Properties.vendorID);
   }
   case PI_DEVICE_INFO_MAX_COMPUTE_UNITS: {
 
-    auto coreProperties =
-        chain.get<vk::PhysicalDeviceShaderCorePropertiesAMD>();
+    auto CoreProperties =
+        Chain.get<vk::PhysicalDeviceShaderCorePropertiesAMD>();
     // TODO: check if this is correct
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   pi_uint32(coreProperties.computeUnitsPerShaderArray));
+                   pi_uint32(CoreProperties.computeUnitsPerShaderArray));
   }
   case PI_DEVICE_INFO_MAX_WORK_ITEM_DIMENSIONS: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   max_work_item_dimensions);
+                   MaxWorkItemDims);
   }
   case PI_DEVICE_INFO_MAX_WORK_ITEM_SIZES: {
-    auto limits = properties.limits;
-    return getInfoArray(max_work_item_dimensions, param_value_size, param_value,
-                        param_value_size_ret, limits.maxComputeWorkGroupSize);
+    auto Limits = Properties.limits;
+    return getInfoArray(MaxWorkItemDims, param_value_size, param_value,
+                        param_value_size_ret, Limits.maxComputeWorkGroupSize);
   }
   case PI_DEVICE_INFO_MAX_WORK_GROUP_SIZE: {
-    auto limits = properties.limits;
+    auto Limits = Properties.limits;
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   size_t(limits.maxComputeWorkGroupCount[0] +
-                          limits.maxComputeWorkGroupCount[1] +
-                          limits.maxComputeWorkGroupCount[2]));
+                   size_t(Limits.maxComputeWorkGroupCount[0] +
+                          Limits.maxComputeWorkGroupCount[1] +
+                          Limits.maxComputeWorkGroupCount[2]));
   }
   case PI_DEVICE_INFO_PREFERRED_VECTOR_WIDTH_CHAR: {
     return getInfo(param_value_size, param_value, param_value_size_ret, 1u);
@@ -583,8 +587,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     //????
   }
   case PI_DEVICE_INFO_ADDRESS_BITS: {
-    auto bits = pi_uint32{std::numeric_limits<uintptr_t>::digits};
-    return getInfo(param_value_size, param_value, param_value_size_ret, bits);
+    auto Bits = pi_uint32{std::numeric_limits<uintptr_t>::digits};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Bits);
   }
   case PI_DEVICE_INFO_MAX_MEM_ALLOC_SIZE: {
     // Max size of memory object allocation in bytes.
@@ -595,7 +599,7 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
 
     return getInfo(
         param_value_size, param_value, param_value_size_ret,
-        pi_uint64{chain.get<vk::PhysicalDeviceMaintenance3Properties>()
+        pi_uint64{Chain.get<vk::PhysicalDeviceMaintenance3Properties>()
                       .maxMemoryAllocationSize});
   }
   case PI_DEVICE_INFO_IMAGE_SUPPORT: {
@@ -646,7 +650,7 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
                    size_t{0});
   }
   case PI_DEVICE_INFO_MEM_BASE_ADDR_ALIGN: {
-    auto limits = properties.limits;
+    auto limits = Properties.limits;
     // TODO: Which one exactly? minStorageBufferOffsetAlignment,
     // minUniformBufferOffsetAlignment or minStorageBufferOffsetAlignment
     return getInfo(param_value_size, param_value, param_value_size_ret,
@@ -684,11 +688,11 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_GLOBAL_MEM_SIZE: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   pi_uint64{properties.limits.maxComputeSharedMemorySize});
+                   pi_uint64{Properties.limits.maxComputeSharedMemorySize});
   }
   case PI_DEVICE_INFO_MAX_CONSTANT_BUFFER_SIZE: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   pi_uint64{properties.limits.maxPushConstantsSize});
+                   pi_uint64{Properties.limits.maxPushConstantsSize});
   }
   case PI_DEVICE_INFO_MAX_CONSTANT_ARGS: {
     // TODO: How to find this value???
@@ -699,15 +703,15 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
                    PI_DEVICE_LOCAL_MEM_TYPE_LOCAL);
   }
   case PI_DEVICE_INFO_LOCAL_MEM_SIZE: {
-    auto memoryProperties = device->phDevice.getMemoryProperties();
-    uint64_t memorySize = 0;
-    for (uint32_t i = 0; i < memoryProperties.memoryHeapCount; i++) {
-      if (memoryProperties.memoryHeaps[i].flags &
+    auto MemoryProperties = Device->PhDevice.getMemoryProperties();
+    uint64_t MemorySize = 0;
+    for (uint32_t i = 0; i < MemoryProperties.memoryHeapCount; i++) {
+      if (MemoryProperties.memoryHeaps[i].flags &
           vk::MemoryHeapFlagBits::eDeviceLocal)
-        memorySize += memoryProperties.memoryHeaps[i].size;
+        MemorySize += MemoryProperties.memoryHeaps[i].size;
     }
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   memorySize);
+                   MemorySize);
   }
   case PI_DEVICE_INFO_ERROR_CORRECTION_SUPPORT: {
     // TODO: How to find this value???
@@ -716,7 +720,7 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   case PI_DEVICE_INFO_HOST_UNIFIED_MEMORY: {
 
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   properties.deviceType ==
+                   Properties.deviceType ==
                        vk::PhysicalDeviceType::eIntegratedGpu);
   }
   case PI_DEVICE_INFO_PROFILING_TIMER_RESOLUTION: {
@@ -738,22 +742,22 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_EXECUTION_CAPABILITIES: {
     // well is this true?
-    auto capability = CL_EXEC_KERNEL;
+    auto Capability = CL_EXEC_KERNEL;
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   capability);
+                   Capability);
   }
   case PI_DEVICE_INFO_QUEUE_ON_DEVICE_PROPERTIES: {
     // The mandated minimum capability:
-    auto capability =
+    auto Capability =
         CL_QUEUE_PROFILING_ENABLE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   capability);
+                   Capability);
   }
   case PI_DEVICE_INFO_QUEUE_ON_HOST_PROPERTIES: {
     // The mandated minimum capability:
-    auto capability = CL_QUEUE_PROFILING_ENABLE;
+    auto Capability = CL_QUEUE_PROFILING_ENABLE;
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   capability);
+                   Capability);
   }
   case PI_DEVICE_INFO_BUILT_IN_KERNELS: {
     // An empty string is returned if no built-in kernels are supported by the
@@ -762,24 +766,24 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_PLATFORM: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   device->platform_);
+                   Device->Platform_);
   }
   case PI_DEVICE_INFO_NAME: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   properties.deviceName);
+                   Properties.deviceName);
   }
   case PI_DEVICE_INFO_VENDOR: {
     *param_value_size_ret =
         snprintf(cast<char *>(param_value), param_value_size, "%x",
-                 properties.vendorID) +
+                 Properties.vendorID) +
         1;
     return PI_SUCCESS;
   }
   case PI_DEVICE_INFO_DRIVER_VERSION: {
     *param_value_size_ret =
         snprintf(cast<char *>(param_value), param_value_size, "%d.%d",
-                 VK_VERSION_MAJOR(properties.driverVersion),
-                 VK_VERSION_MINOR(properties.driverVersion)) +
+                 VK_VERSION_MAJOR(Properties.driverVersion),
+                 VK_VERSION_MINOR(Properties.driverVersion)) +
         1;
     return PI_SUCCESS;
   }
@@ -793,8 +797,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
   case PI_DEVICE_INFO_VERSION: {
     *param_value_size_ret =
         snprintf(cast<char *>(param_value), param_value_size, "VULKAN %d.%d",
-                 VK_VERSION_MAJOR(properties.apiVersion),
-                 VK_VERSION_MINOR(properties.apiVersion)) +
+                 VK_VERSION_MAJOR(Properties.apiVersion),
+                 VK_VERSION_MINOR(Properties.apiVersion)) +
         1;
     return PI_SUCCESS;
   }
@@ -841,8 +845,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     // query if/how the device can access page-locked host memory, possibly
     // through PCIe, using the same pointer as the host
     // TODO: How to find this value???
-    pi_bitfield value = {};
-    return getInfo(param_value_size, param_value, param_value_size_ret, value);
+    pi_bitfield Value = {};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Value);
   }
   case PI_DEVICE_INFO_USM_DEVICE_SUPPORT: {
     // from cl_intel_unified_shared_memory:
@@ -851,8 +855,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     //
     // query how the device can access memory allocated on the device itself (?)
     // TODO: How to find this value???
-    pi_bitfield value = {};
-    return getInfo(param_value_size, param_value, param_value_size_ret, value);
+    pi_bitfield Value = {};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Value);
   }
   case PI_DEVICE_INFO_USM_SINGLE_SHARED_SUPPORT: {
     // from cl_intel_unified_shared_memory:
@@ -861,8 +865,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     //
     // query if/how the device can access managed memory associated to it
     // TODO: How to find this value???
-    pi_bitfield value = {};
-    return getInfo(param_value_size, param_value, param_value_size_ret, value);
+    pi_bitfield Value = {};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Value);
   }
   case PI_DEVICE_INFO_USM_CROSS_SHARED_SUPPORT: {
     // from cl_intel_unified_shared_memory:
@@ -874,8 +878,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     // query if/how the device can access managed memory associated to other
     // devices
     // TODO: How to find this value???
-    pi_bitfield value = {};
-    return getInfo(param_value_size, param_value, param_value_size_ret, value);
+    pi_bitfield Value = {};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Value);
   }
   case PI_DEVICE_INFO_USM_SYSTEM_SHARED_SUPPORT: {
     // from cl_intel_unified_shared_memory:
@@ -885,8 +889,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
     // query if/how the device can access pageable host memory allocated by the
     // system allocator
     // TODO: How to find this value???
-    pi_bitfield value = {};
-    return getInfo(param_value_size, param_value, param_value_size_ret, value);
+    pi_bitfield Value = {};
+    return getInfo(param_value_size, param_value, param_value_size_ret, Value);
   }
 
   default:
@@ -898,12 +902,12 @@ pi_result VLK(piDeviceGetInfo)(pi_device device, pi_device_info param_name,
 
 /// \return PI_SUCCESS if the function is executed successfully
 /// CUDA devices are always root devices so retain always returns success.
-pi_result VLK(piDeviceRetain)(pi_device device) { return PI_SUCCESS; }
+pi_result VLK(piDeviceRetain)(pi_device Device) { return PI_SUCCESS; }
 
 /// Not applicable to VULKAN, devices cannot be partitioned.
 ///
 pi_result VLK(piDevicePartition)(
-    pi_device device,
+    pi_device Device,
     const cl_device_partition_property *properties, // TODO: untie from OpenCL
     pi_uint32 num_devices, pi_device *out_devices, pi_uint32 *out_num_devices) {
   return {};
@@ -911,8 +915,8 @@ pi_result VLK(piDevicePartition)(
 
 /// \return PI_SUCCESS always since CUDA devices are always root devices.
 ///
-pi_result VLK(piDeviceRelease)(pi_device device) {
-  free(device);
+pi_result VLK(piDeviceRelease)(pi_device Device) {
+  free(Device);
   return PI_SUCCESS;
 }
 
@@ -920,10 +924,10 @@ pi_result VLK(piDeviceRelease)(pi_device device) {
 ///
 /// \param device is the PI device to get the native handle of.
 /// \param nativeHandle is the native handle of device.
-pi_result VLK(piextDeviceGetNativeHandle)(pi_device device,
+pi_result VLK(piextDeviceGetNativeHandle)(pi_device Device,
                                           pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
-  *nativeHandle = reinterpret_cast<pi_native_handle>(&device->phDevice);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&Device->PhDevice);
   return PI_SUCCESS;
 }
 
@@ -933,7 +937,7 @@ pi_result VLK(piextDeviceGetNativeHandle)(pi_device device,
 /// \param nativeHandle is the native handle to create PI device from.
 /// \param device is the PI device created from the native handle.
 pi_result VLK(piextDeviceCreateWithNativeHandle)(pi_native_handle nativeHandle,
-                                                 pi_device *device) {
+                                                 pi_device *Device) {
   cl::sycl::detail::pi::die(
       "vulkan_piextDeviceCreateWithNativeHandle not implemented");
   return {};
@@ -941,7 +945,7 @@ pi_result VLK(piextDeviceCreateWithNativeHandle)(pi_native_handle nativeHandle,
 
 /// \return If available, the first binary that is Vulkan Compatible
 ///
-pi_result VLK(piextDeviceSelectBinary)(pi_device device,
+pi_result VLK(piextDeviceSelectBinary)(pi_device Device,
                                        pi_device_binary *binaries,
                                        pi_uint32 num_binaries,
                                        pi_device_binary *selected_binary) {
@@ -969,7 +973,7 @@ pi_result VLK(piextDeviceSelectBinary)(pi_device device,
   return PI_INVALID_BINARY;
 }
 
-pi_result VLK(piextGetDeviceFunctionPointer)(pi_device device,
+pi_result VLK(piextGetDeviceFunctionPointer)(pi_device Device,
                                              pi_program program,
                                              const char *function_name,
                                              pi_uint64 *function_pointer_ret) {
@@ -1003,7 +1007,7 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   assert(num_devices == 1);
   // Need input context
   assert(retcontext != nullptr);
-  pi_result errcode_ret = PI_SUCCESS;
+  pi_result Errcode_ret = PI_SUCCESS;
 
   // What to do with these properties. How does CUDA got its own property?
   //// Parse properties.
@@ -1027,34 +1031,34 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   //  }
   //}
 
-  auto device = devices[0];
-  auto physicalDevice = device->phDevice;
+  auto Device = devices[0];
+  auto PhysicalDevice = Device->PhDevice;
 
   // get the QueueFamilyProperties of the first PhysicalDevice
   std::vector<vk::QueueFamilyProperties> queueFamilyProperties =
-      physicalDevice.getQueueFamilyProperties();
+      PhysicalDevice.getQueueFamilyProperties();
 
-  uint32_t computeQueueFamilyIndex = 0;
+  uint32_t ComputeQueueFamilyIndex = 0;
 
   // get the best index into queueFamiliyProperties which supports compute and
   // stuff
-  getBestComputeQueueNPH(physicalDevice, computeQueueFamilyIndex);
+  getBestComputeQueueNPH(PhysicalDevice, ComputeQueueFamilyIndex);
 
   // create a UniqueDevice
-  float queuePriority = 0.0f;
+  float QueuePriority = 0.0f;
   vk::DeviceQueueCreateInfo deviceQueueCreateInfo(
       vk::DeviceQueueCreateFlags(),
-      static_cast<uint32_t>(computeQueueFamilyIndex), 1, &queuePriority);
+      static_cast<uint32_t>(ComputeQueueFamilyIndex), 1, &QueuePriority);
 
-  pi_context context = new _pi_context();
-  context->refCounter_ = 1;
-  context->phDevice_ = device;
-  context->computeQueueFamilyIndex = computeQueueFamilyIndex;
-  context->device = physicalDevice.createDevice(
+  pi_context Context = new _pi_context();
+  Context->RefCounter_ = 1;
+  Context->PhDevice_ = Device;
+  Context->ComputeQueueFamilyIndex = ComputeQueueFamilyIndex;
+  Context->Device = PhysicalDevice.createDevice(
       vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1, &deviceQueueCreateInfo));
 
-  *retcontext = context;
-  return errcode_ret;
+  *retcontext = Context;
+  return Errcode_ret;
 }
 
 pi_result VLK(piContextGetInfo)(pi_context context, pi_context_info param_name,
@@ -1065,10 +1069,10 @@ pi_result VLK(piContextGetInfo)(pi_context context, pi_context_info param_name,
     return getInfo(param_value_size, param_value, param_value_size_ret, 1);
   case PI_CONTEXT_INFO_DEVICES:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   context->phDevice_);
+                   context->PhDevice_);
   case PI_CONTEXT_INFO_REFERENCE_COUNT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   context->refCounter_);
+                   context->RefCounter_);
   default:
     PI_HANDLE_UNKNOWN_PARAM_NAME(param_name);
   }
@@ -1087,7 +1091,7 @@ NOT_IMPL(pi_result VLK(piextContextSetExtendedDeleter),
 pi_result VLK(piextContextGetNativeHandle)(pi_context context,
                                            pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
-  *nativeHandle = reinterpret_cast<pi_native_handle>(&context->device);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&context->Device);
   return PI_SUCCESS;
 }
 
@@ -1100,35 +1104,35 @@ NOT_IMPL(pi_result VLK(piextContextCreateWithNativeHandle),
          (pi_native_handle nativeHandle, pi_context *context))
 
 pi_result VLK(piContextRetain)(pi_context context) {
-  context->refCounter_++;
+  context->RefCounter_++;
   return PI_SUCCESS;
 }
 
 pi_result VLK(piContextRelease)(pi_context context) {
-  context->refCounter_--;
-  if (context->refCounter_ < 1)
+  context->RefCounter_--;
+  if (context->RefCounter_ < 1)
     free(context);
   return PI_SUCCESS;
 }
 
-pi_result VLK(piQueueCreate)(pi_context context, pi_device device,
-                             pi_queue_properties properties, pi_queue *queue) {
-  assert(queue && "piQueueCreate failed, queue argument is null");
+pi_result VLK(piQueueCreate)(pi_context context, pi_device Device,
+                             pi_queue_properties properties, pi_queue *Queue) {
+  assert(Queue && "piQueueCreate failed, queue argument is null");
 
   /*newQueue->commandBuffer_ =
       context->device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
           vk::CommandPoolCreateFlags(), context->computeQueueFamilyIndex));*/
   // TODO: think about incrementing Queue Index
 
-  auto commandPool =
-      context->device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
-          vk::CommandPoolCreateFlags(), context->computeQueueFamilyIndex));
+  auto CommandPool =
+      context->Device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
+          vk::CommandPoolCreateFlags(), context->ComputeQueueFamilyIndex));
 
-  *queue = new _pi_queue(
-      context->device.getQueue(context->computeQueueFamilyIndex, 0),
-      std::move(context->device
+  *Queue = new _pi_queue(
+      context->Device.getQueue(context->ComputeQueueFamilyIndex, 0),
+      std::move(context->Device
                     .allocateCommandBuffers(vk::CommandBufferAllocateInfo(
-                        commandPool.get(), vk::CommandBufferLevel::ePrimary, 1))
+                        CommandPool.get(), vk::CommandBufferLevel::ePrimary, 1))
                     .front()),
       context, properties);
   return PI_SUCCESS;
@@ -1142,16 +1146,16 @@ pi_result VLK(piQueueGetInfo)(pi_queue command_queue, pi_queue_info param_name,
   switch (param_name) {
   case PI_QUEUE_INFO_CONTEXT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   command_queue->context_);
+                   command_queue->Context_);
   case PI_QUEUE_INFO_DEVICE:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   command_queue->context_->phDevice_);
+                   command_queue->Context_->PhDevice_);
   case PI_QUEUE_INFO_REFERENCE_COUNT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   command_queue->refCounter_);
+                   command_queue->RefCounter_);
   case PI_QUEUE_INFO_PROPERTIES:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   command_queue->properties_);
+                   command_queue->Properties_);
   default:
     PI_HANDLE_UNKNOWN_PARAM_NAME(param_name);
   }
@@ -1159,15 +1163,15 @@ pi_result VLK(piQueueGetInfo)(pi_queue command_queue, pi_queue_info param_name,
   return {};
 }
 
-pi_result VLK(piQueueRetain)(pi_queue queue) {
-  queue->refCounter_++;
+pi_result VLK(piQueueRetain)(pi_queue Queue) {
+  Queue->RefCounter_++;
   return PI_SUCCESS;
 }
 
-pi_result VLK(piQueueRelease)(pi_queue queue) {
-  queue->refCounter_--;
-  if (queue->refCounter_ < 1)
-    free(queue);
+pi_result VLK(piQueueRelease)(pi_queue Queue) {
+  Queue->RefCounter_--;
+  if (Queue->RefCounter_ < 1)
+    free(Queue);
   return PI_SUCCESS;
 }
 
@@ -1179,24 +1183,24 @@ pi_result VLK(piQueueFinish)(pi_queue command_queue) {
           vk::CommandPoolCreateFlags(),
           command_queue->context_->computeQueueFamilyIndex));
 
-  auto commandBuffer = std::move(
+  auto CommandBuffer = std::move(
       command_queue->context_->device
           .allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo(
               commandPool.get(), vk::CommandBufferLevel::ePrimary, 1))
           .front());
 
-  commandBuffer->begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
+  CommandBuffer->begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
       vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
-  commandBuffer->bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
+  CommandBuffer->bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
 
-  commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+  CommandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                                     pipelineLayout.get(), 0, 1,
                                     &descriptorSet.get(), 0, nullptr);
 
-  commandBuffer->dispatch(bufferSize / sizeof(int32_t), 1, 1);
+  CommandBuffer->dispatch(bufferSize / sizeof(int32_t), 1, 1);
 
-  commandBuffer->end();*/
+  CommandBuffer->end();*/
   return PI_ERROR_UNKNOWN;
 }
 
@@ -1204,10 +1208,10 @@ pi_result VLK(piQueueFinish)(pi_queue command_queue) {
 ///
 /// \param queue is the PI queue to get the native handle of.
 /// \param nativeHandle is the native handle of queue.
-pi_result VLK(piextQueueGetNativeHandle)(pi_queue queue,
+pi_result VLK(piextQueueGetNativeHandle)(pi_queue Queue,
                                          pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
-  *nativeHandle = reinterpret_cast<pi_native_handle>(&queue->queue);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&Queue->Queue);
   return PI_SUCCESS;
 }
 
@@ -1217,34 +1221,32 @@ pi_result VLK(piextQueueGetNativeHandle)(pi_queue queue,
 /// \param nativeHandle is the native handle to create PI queue from.
 /// \param queue is the PI queue created from the native handle.
 NOT_IMPL(pi_result VLK(piextQueueCreateWithNativeHandle),
-         (pi_native_handle nativeHandle, pi_queue *queue))
+         (pi_native_handle nativeHandle, pi_queue *Queue))
 
 pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                                  size_t size, void *host_ptr, pi_mem *ret_mem) {
   // set memoryTypeIndex to an invalid entry in the properties.memoryTypes array
-  uint32_t memoryTypeIndex = VK_MAX_MEMORY_TYPES;
+  uint32_t MemoryTypeIndex = VK_MAX_MEMORY_TYPES;
 
-  auto memoryProperties = context->phDevice_->phDevice.getMemoryProperties();
+  auto MemoryProperties = context->PhDevice_->PhDevice.getMemoryProperties();
 
-  for (uint32_t k = 0; k < memoryProperties.memoryTypeCount; k++) {
+  for (uint32_t k = 0; k < MemoryProperties.memoryTypeCount; k++) {
     // if ((VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
     // |VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) &
     // memoryProperties.memoryTypes[k].propertyFlags &&
     if ((vk::MemoryPropertyFlagBits::eHostVisible |
          vk::MemoryPropertyFlagBits::eHostCoherent) &
-            memoryProperties.memoryTypes[k].propertyFlags &&
+            MemoryProperties.memoryTypes[k].propertyFlags &&
         (size <
-         memoryProperties.memoryHeaps[memoryProperties.memoryTypes[k].heapIndex]
+         MemoryProperties.memoryHeaps[MemoryProperties.memoryTypes[k].heapIndex]
              .size)) {
 
-      memoryTypeIndex = k;
-      // printf("found memory %d out of %d\n", memoryTypeIndex,
-      // memoryProperties.memoryTypeCount);
+      MemoryTypeIndex = k;
       break;
     }
   }
 
-  if (memoryTypeIndex == VK_MAX_MEMORY_TYPES)
+  if (MemoryTypeIndex == VK_MAX_MEMORY_TYPES)
     return PI_OUT_OF_HOST_MEMORY; // or PI_OUT_OF_RESOURCES?
 
   if (flags & PI_MEM_FLAGS_HOST_PTR_USE) {
@@ -1260,15 +1262,15 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
 
     try {
 
-      *ret_mem = new _pi_mem(context->device.allocateMemory(
-                                 vk::MemoryAllocateInfo(size, memoryTypeIndex)),
-                             context->device.createBuffer(vk::BufferCreateInfo(
+      *ret_mem = new _pi_mem(context->Device.allocateMemory(
+                                 vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
+                             context->Device.createBuffer(vk::BufferCreateInfo(
                                  vk::BufferCreateFlags(), size,
                                  vk::BufferUsageFlagBits::eStorageBuffer,
                                  vk::SharingMode::eExclusive)),
                              context);
-    } catch (vk::SystemError const &e) {
-      return mapVulkanErrToCLErr(e);
+    } catch (vk::SystemError const &Err) {
+      return mapVulkanErrToCLErr(Err);
     }
   }
 
@@ -1300,20 +1302,20 @@ pi_result VLK(piMemImageGetInfo)(pi_mem image, pi_image_info param_name,
 }
 
 pi_result VLK(piMemRetain)(pi_mem mem) {
-  mem->refCounter_++;
+  mem->RefCounter_++;
   return PI_SUCCESS;
 }
 
 pi_result VLK(piMemRelease)(pi_mem mem) {
-  mem->refCounter_--;
-  if (mem->refCounter_ < 1) {
-    mem->context_->device.freeMemory(mem->memory);
+  mem->RefCounter_--;
+  if (mem->RefCounter_ < 1) {
+    mem->Context_->Device.freeMemory(mem->Memory);
     free(mem);
   }
   return PI_SUCCESS;
 }
 
-pi_result VLK(piMemBufferPartition)(pi_mem buffer, pi_mem_flags flags,
+pi_result VLK(piMemBufferPartition)(pi_mem Buffer, pi_mem_flags flags,
                                     pi_buffer_create_type buffer_create_type,
                                     void *buffer_create_info, pi_mem *ret_mem) {
   // assert((buffer != nullptr) && "PI_INVALID_MEM_OBJECT");
@@ -1377,7 +1379,7 @@ pi_result VLK(piMemBufferPartition)(pi_mem buffer, pi_mem_flags flags,
 pi_result VLK(piextMemGetNativeHandle)(pi_mem mem, pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
   *nativeHandle =
-      reinterpret_cast<pi_native_handle>(&mem->memory); // Or return Buffer?
+      reinterpret_cast<pi_native_handle>(&mem->Memory); // Or return Buffer?
   return PI_SUCCESS;
 }
 
@@ -1438,12 +1440,12 @@ pi_result VLK(piProgramCreate)(pi_context context, const void *il,
   //}
 
   // devide length here due to reinterprete?
-  auto program = std::make_unique<_pi_program>(
-      context->device.createShaderModule(
+  auto Program = std::make_unique<_pi_program>(
+      context->Device.createShaderModule(
           vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), length,
                                      reinterpret_cast<const uint32_t *>(il))),
       context, reinterpret_cast<const char *>(il), length);
-  *ret_program = program.release();
+  *ret_program = Program.release();
   return PI_SUCCESS;
 }
 
@@ -1463,12 +1465,12 @@ pi_result VLK(piclProgramCreateWithBinary)(
   // TODO: Only one device for now
   // TODO: is binary_status needed to be filled
   // devide length here due to reinterprete?
-  auto program = std::make_unique<_pi_program>(
-      context->device.createShaderModule(vk::ShaderModuleCreateInfo(
+  auto Program = std::make_unique<_pi_program>(
+      context->Device.createShaderModule(vk::ShaderModuleCreateInfo(
           vk::ShaderModuleCreateFlags(), lengths[0],
           reinterpret_cast<const uint32_t *>(binaries[0]))),
       context, reinterpret_cast<const char *>(binaries[0]), lengths[0]);
-  *ret_program = program.release();
+  *ret_program = Program.release();
   return PI_SUCCESS;
 }
 
@@ -1477,29 +1479,29 @@ pi_result VLK(piProgramGetInfo)(pi_program program, pi_program_info param_name,
                                 size_t *param_value_size_ret) {
   assert(program != nullptr);
 
-  // program->context_->device.getShaderInfoAMD();
+  // Program->context_->device.getShaderInfoAMD();
 
   switch (param_name) {
   case PI_PROGRAM_INFO_REFERENCE_COUNT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   program->refCounter_);
+                   program->RefCounter_);
   case PI_PROGRAM_INFO_CONTEXT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   program->context_);
+                   program->Context_);
   case PI_PROGRAM_INFO_NUM_DEVICES:
     return getInfo(param_value_size, param_value, param_value_size_ret, 1u);
   case PI_PROGRAM_INFO_DEVICES:
     return getInfoArray(1, param_value_size, param_value, param_value_size_ret,
-                        &program->context_->phDevice_);
+                        &program->Context_->PhDevice_);
   case PI_PROGRAM_INFO_SOURCE:
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   program->source_);
+                   program->Source_);
   case PI_PROGRAM_INFO_BINARY_SIZES:
     return getInfoArray(1, param_value_size, param_value, param_value_size_ret,
-                        &program->sourceLength_);
+                        &program->SourceLength_);
   case PI_PROGRAM_INFO_BINARIES:
     return getInfoArray(1, param_value_size, param_value, param_value_size_ret,
-                        &program->source_);
+                        &program->Source_);
   case PI_PROGRAM_INFO_NUM_KERNELS:
     return getInfo(param_value_size, param_value, param_value_size_ret, 1);
   case PI_PROGRAM_INFO_KERNEL_NAMES:
@@ -1544,7 +1546,7 @@ pi_result VLK(piProgramBuild)(pi_program program, pi_uint32 num_devices,
   return {};
 }
 
-pi_result VLK(piProgramGetBuildInfo)(pi_program program, pi_device device,
+pi_result VLK(piProgramGetBuildInfo)(pi_program program, pi_device Device,
                                      cl_program_build_info param_name,
                                      size_t param_value_size, void *param_value,
                                      size_t *param_value_size_ret) {
@@ -1567,14 +1569,14 @@ pi_result VLK(piProgramGetBuildInfo)(pi_program program, pi_device device,
 }
 
 pi_result VLK(piProgramRetain)(pi_program program) {
-  program->refCounter_++;
+  program->RefCounter_++;
   return PI_SUCCESS;
 }
 
 pi_result VLK(piProgramRelease)(pi_program program) {
-  program->refCounter_--;
-  if (program->refCounter_ < 1)
-    program->context_->device.destroyShaderModule(program->module);
+  program->RefCounter_--;
+  if (program->RefCounter_ < 1)
+    program->Context_->Device.destroyShaderModule(program->Module);
   free(program);
   return PI_SUCCESS;
 }
@@ -1596,7 +1598,7 @@ pi_result VLK(piextProgramSetSpecializationConstant)(pi_program prog,
 pi_result VLK(piextProgramGetNativeHandle)(pi_program program,
                                            pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
-  *nativeHandle = reinterpret_cast<pi_native_handle>(&program->module);
+  *nativeHandle = reinterpret_cast<pi_native_handle>(&program->Module);
   return PI_SUCCESS;
 }
 
@@ -1627,19 +1629,19 @@ pi_result VLK(piKernelGetInfo)(pi_kernel kernel, pi_kernel_info param_name,
     switch (param_name) {
     case PI_KERNEL_INFO_FUNCTION_NAME:
       return getInfo(param_value_size, param_value, param_value_size_ret,
-                     kernel->name);
+                     kernel->Name);
     case PI_KERNEL_INFO_NUM_ARGS:
       return getInfo(param_value_size, param_value, param_value_size_ret, 0);
     case PI_KERNEL_INFO_REFERENCE_COUNT:
       return getInfo(param_value_size, param_value, param_value_size_ret,
-                     kernel->refCounter_);
+                     kernel->RefCounter_);
     case PI_KERNEL_INFO_CONTEXT: {
       return getInfo(param_value_size, param_value, param_value_size_ret,
-                     kernel->program_->context_);
+                     kernel->Program_->Context_);
     }
     case PI_KERNEL_INFO_PROGRAM: {
       return getInfo(param_value_size, param_value, param_value_size_ret,
-                     kernel->program_);
+                     kernel->Program_);
     }
     case PI_KERNEL_INFO_ATTRIBUTES: {
       return getInfo(param_value_size, param_value, param_value_size_ret, "");
@@ -1651,7 +1653,7 @@ pi_result VLK(piKernelGetInfo)(pi_kernel kernel, pi_kernel_info param_name,
   return PI_INVALID_KERNEL;
 }
 
-pi_result VLK(piKernelGetGroupInfo)(pi_kernel kernel, pi_device device,
+pi_result VLK(piKernelGetGroupInfo)(pi_kernel kernel, pi_device Device,
                                     pi_kernel_group_info param_name,
                                     size_t param_value_size, void *param_value,
                                     size_t *param_value_size_ret) {
@@ -1719,7 +1721,7 @@ pi_result VLK(piKernelGetGroupInfo)(pi_kernel kernel, pi_device device,
 
 // \TODO: Not implemented
 pi_result VLK(piKernelGetSubGroupInfo)(
-    pi_kernel kernel, pi_device device,
+    pi_kernel kernel, pi_device Device,
     cl_kernel_sub_group_info param_name, // TODO: untie from OpenCL
     size_t input_value_size, const void *input_value, size_t param_value_size,
     void *param_value, size_t *param_value_size_ret) {
@@ -1728,13 +1730,13 @@ pi_result VLK(piKernelGetSubGroupInfo)(
 }
 
 pi_result VLK(piKernelRetain)(pi_kernel kernel) {
-  kernel->refCounter_++;
+  kernel->RefCounter_++;
   return PI_SUCCESS;
 }
 
 pi_result VLK(piKernelRelease)(pi_kernel kernel) {
-  kernel->refCounter_--;
-  if (kernel->refCounter_ < 1) {
+  kernel->RefCounter_--;
+  if (kernel->RefCounter_ < 1) {
     free(kernel);
   }
   return PI_SUCCESS;
@@ -1810,101 +1812,101 @@ NOT_IMPL(pi_result VLK(piSamplerRetain), (pi_sampler sampler))
 NOT_IMPL(pi_result VLK(piSamplerRelease), (pi_sampler sampler))
 
 pi_result VLK(piEnqueueKernelLaunch)(
-    pi_queue queue, pi_kernel kernel, pi_uint32 work_dim,
+    pi_queue Queue, pi_kernel kernel, pi_uint32 work_dim,
     const size_t *global_work_offset, const size_t *global_work_size,
     const size_t *local_work_size, pi_uint32 num_events_in_wait_list,
     const pi_event *event_wait_list, pi_event *event) {
 
-  auto &device = queue->context_->device;
+  auto &Device = Queue->Context_->Device;
 
   try {
-    vk::UniqueDescriptorSetLayout descriptorSetLayout =
-        device.createDescriptorSetLayoutUnique(
+    vk::UniqueDescriptorSetLayout DescriptorSetLayout =
+        Device.createDescriptorSetLayoutUnique(
             vk::DescriptorSetLayoutCreateInfo(
                 vk::DescriptorSetLayoutCreateFlags(),
                 static_cast<uint32_t>(
-                    kernel->descriptorSetLayoutBinding.size()),
-                kernel->descriptorSetLayoutBinding.data()));
+                    kernel->DescriptorSetLayoutBinding.size()),
+                kernel->DescriptorSetLayoutBinding.data()));
 
     // create a PipelineLayout using that DescriptorSetLayout
-    vk::UniquePipelineLayout pipelineLayout =
-        device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(
-            vk::PipelineLayoutCreateFlags(), 1, &descriptorSetLayout.get()));
+    vk::UniquePipelineLayout PipelineLayout =
+        Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(
+            vk::PipelineLayoutCreateFlags(), 1, &DescriptorSetLayout.get()));
 
     vk::ComputePipelineCreateInfo computePipelineInfo(
         vk::PipelineCreateFlags(),
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
                                           vk::ShaderStageFlagBits::eCompute,
-                                          kernel->program_->module,
-                                          kernel->name),
-        pipelineLayout.get());
+                                          kernel->Program_->Module,
+                                          kernel->Name),
+        PipelineLayout.get());
 
-    auto pipeline =
-        device.createComputePipelineUnique(nullptr, computePipelineInfo);
+    auto Pipeline =
+        Device.createComputePipelineUnique(nullptr, computePipelineInfo);
 
-    auto descriptorPoolSize =
+    auto DescriptorPoolSize =
         vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, 2);
-    auto descriptorPool =
-        device.createDescriptorPool(vk::DescriptorPoolCreateInfo(
-            vk::DescriptorPoolCreateFlags(), 1, 1, &descriptorPoolSize));
+    auto DescriptorPool =
+        Device.createDescriptorPool(vk::DescriptorPoolCreateInfo(
+            vk::DescriptorPoolCreateFlags(), 1, 1, &DescriptorPoolSize));
 
-    auto descriptorSet = std::move(
-        device
+    auto DescriptorSet = std::move(
+        Device
             .allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo(
-                descriptorPool, 1, &descriptorSetLayout.get()))
+                DescriptorPool, 1, &DescriptorSetLayout.get()))
             .front());
 
-    std::vector<vk::WriteDescriptorSet> writeSets{kernel->arguments.size()};
+    std::vector<vk::WriteDescriptorSet> WriteSets{kernel->Arguments.size()};
     std::vector<std::unique_ptr<vk::DescriptorBufferInfo>>
-        descriptorBufferInfos{kernel->arguments.size()};
+        DescriptorBufferInfos{kernel->Arguments.size()};
 
-    for (uint32_t i = 0; i < kernel->arguments.size(); i++) {
-      descriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
-          kernel->arguments[i]->buffer, 0, VK_WHOLE_SIZE);
-      writeSets[i] = vk::WriteDescriptorSet{descriptorSet.get(),
+    for (uint32_t i = 0; i < kernel->Arguments.size(); i++) {
+      DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
+          kernel->Arguments[i]->Buffer, 0, VK_WHOLE_SIZE);
+      WriteSets[i] = vk::WriteDescriptorSet{DescriptorSet.get(),
                                             i,
                                             0,
                                             1,
                                             vk::DescriptorType::eStorageBuffer,
                                             nullptr,
-                                            descriptorBufferInfos[i].get(),
+                                            DescriptorBufferInfos[i].get(),
                                             nullptr};
     }
 
-    device.updateDescriptorSets(writeSets, nullptr);
+    Device.updateDescriptorSets(WriteSets, nullptr);
 
-    auto &commandBuffer = queue->cmdBuffer;
+    auto &CommandBuffer = Queue->CmdBuffer;
 
-    commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
+    CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
         vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
+    CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, Pipeline.get());
 
-    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                                     pipelineLayout.get(), 0, 1,
-                                     &descriptorSet.get(), 0, nullptr);
+    CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                                     PipelineLayout.get(), 0, 1,
+                                     &DescriptorSet.get(), 0, nullptr);
 
-    commandBuffer.dispatch(work_dim >= 1 ? global_work_size[0] : 1,
+    CommandBuffer.dispatch(work_dim >= 1 ? global_work_size[0] : 1,
                            work_dim >= 2 ? global_work_size[1] : 1,
                            work_dim >= 3 ? global_work_size[2] : 1);
 
-    commandBuffer.end();
+    CommandBuffer.end();
 
-    vk::SubmitInfo submitInfo(0, nullptr, nullptr, 1, &commandBuffer, 0,
+    vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0,
                               nullptr);
 
-    auto vulkanQueue =
-        device.getQueue(queue->context_->computeQueueFamilyIndex, 0);
-    vulkanQueue.submit(1, &submitInfo, vk::Fence());
-  } catch (vk::SystemError const &e) {
-    return mapVulkanErrToCLErr(e);
+    auto VulkanQueue =
+        Device.getQueue(Queue->Context_->ComputeQueueFamilyIndex, 0);
+    VulkanQueue.submit(1, &SubmitInfo, vk::Fence());
+  } catch (vk::SystemError const &Err) {
+    return mapVulkanErrToCLErr(Err);
   }
 
   return PI_SUCCESS;
 }
 
 NOT_IMPL(pi_result VLK(piEnqueueNativeKernel),
-         (pi_queue queue, void (*user_func)(void *), void *args, size_t cb_args,
+         (pi_queue Queue, void (*user_func)(void *), void *args, size_t cb_args,
           pi_uint32 num_mem_objects, const pi_mem *mem_list,
           const void **args_mem_loc, pi_uint32 num_events_in_wait_list,
           const pi_event *event_wait_list, pi_event *event))
@@ -1921,23 +1923,23 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
                                       pi_event *event) {
   try {
 
-    void *buffer_ptr = memobj->context_->device.mapMemory(
-        memobj->memory, offset, size, vk::MemoryMapFlags());
+    void *BufferPtr = memobj->Context_->Device.mapMemory(
+        memobj->Memory, offset, size, vk::MemoryMapFlags());
 
-    if (std::memcpy(ptr, buffer_ptr, size) != ptr) {
+    if (std::memcpy(ptr, BufferPtr, size) != ptr) {
       return PI_INVALID_MEM_OBJECT;
     }
 
-  } catch (vk::SystemError const &e) {
-    return mapVulkanErrToCLErr(e);
+  } catch (vk::SystemError const &Err) {
+    return mapVulkanErrToCLErr(Err);
   }
 
-  memobj->context_->device.unmapMemory(memobj->memory);
+  memobj->Context_->Device.unmapMemory(memobj->Memory);
   return PI_SUCCESS;
 }
 
 NOT_IMPL(pi_result VLK(piEnqueueMemBufferReadRect),
-         (pi_queue command_queue, pi_mem buffer, pi_bool blocking_read,
+         (pi_queue command_queue, pi_mem Buffer, pi_bool blocking_read,
           const size_t *buffer_offset, const size_t *host_offset,
           const size_t *region, size_t buffer_row_pitch,
           size_t buffer_slice_pitch, size_t host_row_pitch,
@@ -1951,12 +1953,12 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                                        const pi_event *event_wait_list,
                                        pi_event *event) {
 
-  command_queue->cmdBuffer.updateBuffer(memobj->buffer, offset, size, ptr);
+  command_queue->CmdBuffer.updateBuffer(memobj->Buffer, offset, size, ptr);
   return PI_SUCCESS;
 }
 
 NOT_IMPL(pi_result VLK(piEnqueueMemBufferWriteRect),
-         (pi_queue command_queue, pi_mem buffer, pi_bool blocking_write,
+         (pi_queue command_queue, pi_mem Buffer, pi_bool blocking_write,
           const size_t *buffer_offset, const size_t *host_offset,
           const size_t *region, size_t buffer_row_pitch,
           size_t buffer_slice_pitch, size_t host_row_pitch,
@@ -1971,11 +1973,11 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
                                       const pi_event *event_wait_list,
                                       pi_event *event) {
 
-  std::array<vk::BufferCopy, 1> range = {
+  std::array<vk::BufferCopy, 1> Range = {
       vk::BufferCopy{src_offset, dst_offset, size}};
 
-  command_queue->cmdBuffer.copyBuffer(src_buffer->buffer, dst_buffer->buffer,
-                                      range);
+  command_queue->CmdBuffer.copyBuffer(src_buffer->Buffer, dst_buffer->Buffer,
+                                      Range);
   return PI_SUCCESS;
 }
 
@@ -1988,7 +1990,7 @@ NOT_IMPL(pi_result VLK(piEnqueueMemBufferCopyRect),
           pi_event *event))
 
 NOT_IMPL(pi_result VLK(piEnqueueMemBufferFill),
-         (pi_queue command_queue, pi_mem buffer, const void *pattern,
+         (pi_queue command_queue, pi_mem Buffer, const void *pattern,
           size_t pattern_size, size_t offset, size_t size,
           pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
           pi_event *event))
@@ -2025,16 +2027,16 @@ pi_result VLK(piEnqueueMemBufferMap)(
     const pi_event *event_wait_list, pi_event *event, void **ret_map) {
 
   // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
-  vk::Result error = memobj->context_->device.mapMemory(
-      memobj->memory, offset, size, vk::MemoryMapFlags(), ret_map);
-  return mapVulkanErrToCLErr(error);
+  vk::Result Error = memobj->Context_->Device.mapMemory(
+      memobj->Memory, offset, size, vk::MemoryMapFlags(), ret_map);
+  return mapVulkanErrToCLErr(Error);
 }
 pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  void *mapped_ptr,
                                  pi_uint32 num_events_in_wait_list,
                                  const pi_event *event_wait_list,
                                  pi_event *event) {
-  memobj->context_->device.unmapMemory(memobj->memory);
+  memobj->Context_->Device.unmapMemory(memobj->Memory);
   return PI_SUCCESS;
 }
 
@@ -2051,26 +2053,26 @@ NOT_IMPL(pi_result VLK(piextUSMHostAlloc),
          (void **result_ptr, pi_context context,
           pi_usm_mem_properties *properties, size_t size, pi_uint32 alignment))
 NOT_IMPL(pi_result VLK(piextUSMDeviceAlloc),
-         (void **result_ptr, pi_context context, pi_device device,
+         (void **result_ptr, pi_context context, pi_device Device,
           pi_usm_mem_properties *properties, size_t size, pi_uint32 alignment))
 NOT_IMPL(pi_result VLK(piextUSMSharedAlloc),
-         (void **result_ptr, pi_context context, pi_device device,
+         (void **result_ptr, pi_context context, pi_device Device,
           pi_usm_mem_properties *properties, size_t size, pi_uint32 alignment))
 NOT_IMPL(pi_result VLK(piextUSMFree), (pi_context context, void *ptr))
 NOT_IMPL(pi_result VLK(piextUSMEnqueueMemset),
-         (pi_queue queue, void *ptr, pi_int32 value, size_t count,
+         (pi_queue Queue, void *ptr, pi_int32 value, size_t count,
           pi_uint32 num_events_in_waitlist, const pi_event *events_waitlist,
           pi_event *event))
 NOT_IMPL(pi_result VLK(piextUSMEnqueueMemcpy),
-         (pi_queue queue, pi_bool blocking, void *dst_ptr, const void *src_ptr,
+         (pi_queue Queue, pi_bool blocking, void *dst_ptr, const void *src_ptr,
           size_t size, pi_uint32 num_events_in_waitlist,
           const pi_event *events_waitlist, pi_event *event))
 NOT_IMPL(pi_result VLK(piextUSMEnqueuePrefetch),
-         (pi_queue queue, const void *ptr, size_t size,
+         (pi_queue Queue, const void *ptr, size_t size,
           pi_usm_migration_flags flags, pi_uint32 num_events_in_waitlist,
           const pi_event *events_waitlist, pi_event *event))
 NOT_IMPL(pi_result VLK(piextUSMEnqueueMemAdvise),
-         (pi_queue queue, const void *ptr, size_t length, int advice,
+         (pi_queue Queue, const void *ptr, size_t length, int advice,
           pi_event *event))
 
 NOT_IMPL(pi_result VLK(piextUSMGetMemAllocInfo),

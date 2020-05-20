@@ -94,8 +94,8 @@ void LLVMToSPIRVVulkan::transFunction(Function *I) {
     LLVMToSPIRV::transValue(&FI, nullptr);
   }
   for (auto &FI : *I) {
-    SPIRVBasicBlock *BB = static_cast<SPIRVBasicBlock *>(
-        LLVMToSPIRV::transValue(&FI, nullptr));
+    SPIRVBasicBlock *BB =
+        static_cast<SPIRVBasicBlock *>(LLVMToSPIRV::transValue(&FI, nullptr));
     for (auto &BI : FI) {
       LLVMToSPIRV::transValue(&BI, BB, false);
     }
@@ -247,8 +247,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
     std::vector<SPIRVValue *> Indices;
     for (unsigned I = 0, E = GEP->getNumIndices(); I != E; ++I)
-      Indices.push_back(
-          LLVMToSPIRV::transValue(GEP->getOperand(I + 1), BB));
+      Indices.push_back(LLVMToSPIRV::transValue(GEP->getOperand(I + 1), BB));
     auto *TransPointerOperand =
         LLVMToSPIRV::transValue(GEP->getPointerOperand(), BB);
     // Certain array-related optimization hints can be expressed via
@@ -323,10 +322,9 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
 }
 
-std::vector<SPIRVWord>
-LLVMToSPIRVVulkan::transValue(const std::vector<Value *> &Args,
-                              SPIRVBasicBlock *BB, SPIRVEntry *Entry,
-                              std::vector<std::pair<SPIRVValue *, SPIRVValue *>> &CopyBack) {
+std::vector<SPIRVWord> LLVMToSPIRVVulkan::transValue(
+    const std::vector<Value *> &Args, SPIRVBasicBlock *BB, SPIRVEntry *Entry,
+    std::vector<std::pair<SPIRVValue *, SPIRVValue *>> &CopyBack) {
   std::vector<SPIRVWord> Operands;
   for (size_t I = 0, E = Args.size(); I != E; ++I) {
     if (Entry->isOperandLiteral(I)) {
@@ -334,7 +332,8 @@ LLVMToSPIRVVulkan::transValue(const std::vector<Value *> &Args,
     } else {
       auto Value = LLVMToSPIRV::transValue(Args[I], BB);
       if (Value->isVariable() || !Value->getType()->isTypePointer() ||
-          Value->getType()->getPointerStorageClass() == SPIRVStorageClassKind::StorageClassStorageBuffer) {
+          Value->getType()->getPointerStorageClass() ==
+              SPIRVStorageClassKind::StorageClassStorageBuffer) {
         Operands.push_back(Value->getId());
       } else {
         // Function calls only allow Memory Object Declaration, see

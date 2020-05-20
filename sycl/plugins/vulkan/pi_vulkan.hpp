@@ -1,0 +1,155 @@
+#pragma once
+//===-- pi_vulkan.hpp - VULKAN Plugin -------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+/// \defgroup sycl_pi_vulkan CUDA Plugin
+/// \ingroup sycl_pi
+
+/// \file pi_vulkan.hpp
+/// Declarations for VULKAN Plugin. It is the interface between the
+/// device-agnostic SYCL runtime layer and underlying VULKAN runtime.
+///
+/// \ingroup sycl_pi_vulkan
+
+#include "CL/sycl/detail/pi.h"
+#include <array>
+#include <atomic>
+#include <cassert>
+#include <cstring>
+#include <functional>
+#include <limits>
+#include <mutex>
+#include <numeric>
+#include <stdint.h>
+#include <string>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+
+extern "C" {
+// Convenience macro makes source code search easier
+#define VLK(pi_api) Vulkan##pi_api
+/// \cond INGORE_BLOCK_IN_DOXYGEN
+pi_result VLK(piContextRetain)(pi_context);
+pi_result VLK(piContextRelease)(pi_context);
+pi_result VLK(piDeviceRelease)(pi_device);
+pi_result VLK(piDeviceRetain)(pi_device);
+pi_result VLK(piProgramRetain)(pi_program);
+pi_result VLK(piProgramRelease)(pi_program);
+pi_result VLK(piQueueRelease)(pi_queue);
+pi_result VLK(piQueueRetain)(pi_queue);
+pi_result VLK(piMemRetain)(pi_mem);
+pi_result VLK(piMemRelease)(pi_mem);
+pi_result VLK(piKernelRetain)(pi_kernel);
+pi_result VLK(piKernelRelease)(pi_kernel);
+/// \endcond
+}
+
+/// A PI platform stores all known PI devices,
+///  in the CUDA plugin this is just a vector of
+///  available devices since initialization is done
+///  when devices are used.
+///
+struct _pi_platform {
+  vk::Instance Instance_;
+};
+
+struct _pi_device {
+  vk::PhysicalDevice PhDevice;
+  pi_platform Platform_;
+
+  _pi_device(vk::PhysicalDevice PhDevice_, pi_platform Platform)
+      : PhDevice(PhDevice_), Platform_(Platform){}
+
+};
+
+struct _ref_counter {
+  uint32_t RefCounter_;
+};
+
+struct _pi_context : public _ref_counter {
+  vk::Device Device;
+  uint32_t ComputeQueueFamilyIndex;
+  pi_device PhDevice_;
+};
+
+struct _pi_queue : public _ref_counter {
+  vk::Queue Queue;
+  vk::CommandBuffer CmdBuffer;
+  pi_context Context_;
+  pi_queue_properties Properties_;
+
+  _pi_queue(vk::Queue &&queue_, vk::CommandBuffer &&buffer_, pi_context context,
+            pi_queue_properties properties)
+      : _ref_counter{1}, Queue(queue_), CmdBuffer(buffer_), Context_(context),
+        Properties_(properties) {
+    if (Context_)
+      VLK(piContextRetain)(Context_);
+  }
+
+  ~_pi_queue() {
+    if (Context_)
+      VLK(piContextRelease)(Context_);
+  }
+};
+
+struct _pi_mem : public _ref_counter {
+  vk::DeviceMemory Memory;
+  vk::Buffer Buffer;
+  pi_context Context_;
+  _pi_mem(vk::DeviceMemory Memory_, vk::Buffer Buffer_, pi_context Context)
+      : _ref_counter{1}, Memory(Memory_), Buffer(Buffer_), Context_(Context) {
+    if (Context_)
+      VLK(piContextRetain)(Context_);
+  }
+
+  ~_pi_mem() {
+    if (Context_)
+      VLK(piContextRelease)(Context_);
+  }
+};
+
+struct _pi_program : public _ref_counter {
+  vk::ShaderModule Module;
+  pi_context Context_;
+  const char *Source_;
+  size_t SourceLength_;
+  _pi_program(vk::ShaderModule &&Module_, pi_context Context,
+              const char *Source, size_t SourceLength)
+      : _ref_counter{1}, Module(Module_), Context_(Context), Source_(Source),
+        SourceLength_(SourceLength) {
+    if (Context_)
+      VLK(piContextRetain)(Context_);
+  }
+
+  ~_pi_program() {
+    if (Context_)
+      VLK(piContextRelease)(Context_);
+  }
+};
+
+struct _pi_kernel : public _ref_counter {
+  // vk::ShaderModule module;
+  const char *Name;
+  std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
+  std::vector<pi_mem> Arguments;
+  pi_program Program_;
+  _pi_kernel(const char *Name_, pi_program Program)
+      : _ref_counter{1}, Name(Name_), Program_(Program) {
+    if (Program_)
+      VLK(piProgramRetain)(Program_);
+  }
+
+  ~_pi_kernel() {
+    if (Program_)
+      VLK(piProgramRelease)(Program_);
+  }
+
+  pi_result addArgument(pi_uint32 ArgIndex, pi_mem Memobj);
+};
+
+#undef VLK
