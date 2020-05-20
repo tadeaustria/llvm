@@ -310,12 +310,16 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   }
   if (LoadInst *LD = dyn_cast<LoadInst>(V)) {
     auto TargetTy = LD->getType();
-    auto SourceBaseTy = LD->getPointerOperandType()->getPointerElementType();
-    if (TargetTy->isPointerTy() && TargetTy->getPointerAddressSpace() == 1 &&
-        SourceBaseTy->isStructTy() &&
-        SourceBaseTy->getStructName().find("_arg_") != std::string::npos) {
-      // Well this is a special case, for the data pointer
-      return mapValue(V, LLVMToSPIRV::transValue(LD->getPointerOperand(), BB));
+    auto Source = LD->getPointerOperand();
+    if (auto GEP = dyn_cast<GEPOperator>(Source)) {
+      auto SourceBaseTy =
+          GEP->getPointerOperand()->getType()->getPointerElementType();
+      if (TargetTy->isPointerTy() && TargetTy->getPointerAddressSpace() == 1 &&
+          SourceBaseTy->isStructTy() &&
+          SourceBaseTy->getStructName().find("_arg_") != std::string::npos) {
+        // Well this is a special case, for the data pointer
+        return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
+      }
     }
   }
 
@@ -339,7 +343,15 @@ std::vector<SPIRVWord> LLVMToSPIRVVulkan::transValue(
         // Function calls only allow Memory Object Declaration, see
         // https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#MemoryObjectDeclaration
         // if operand is non Object, create local variable and use it instead
-        // but copy back is needed at the end, maybe
+        // but copy back is needed at the end
+
+        // Theoretically also possible for other storage classes
+        // but then type has to be adapted of the created variable
+        // and can not be directly used
+        assert(Value->getType()->getPointerStorageClass() ==
+                   SPIRVStorageClassKind::StorageClassFunction &&
+               "For now works only for local variables");
+
         auto NewValue = BM->addVariable(
             Value->getType(), false, SPIRVLinkageTypeKind::LinkageTypeInternal,
             /*Initializer*/ nullptr, /*Name*/ "",
