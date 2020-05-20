@@ -357,7 +357,7 @@ public:
                                  SPIRVBasicBlock *BB) override;
   virtual SPIRVInstruction *
   addInstruction(SPIRVInstruction *Inst, SPIRVBasicBlock *BB,
-                 SPIRVInstruction *InsertBefore = nullptr);
+                 const SPIRVInstruction *InsertBefore = nullptr);
   SPIRVInstTemplateBase *addInstTemplate(Op OC, SPIRVBasicBlock *BB,
                                          SPIRVType *Ty) override;
   SPIRVInstTemplateBase *addInstTemplate(Op OC,
@@ -1260,7 +1260,7 @@ SPIRVModuleImpl::addGroupInst(Op OpCode, SPIRVType *Type, Scope Scope,
 
 SPIRVInstruction *
 SPIRVModuleImpl::addInstruction(SPIRVInstruction *Inst, SPIRVBasicBlock *BB,
-                                SPIRVInstruction *InsertBefore) {
+                                const SPIRVInstruction *InsertBefore) {
   if (BB)
     return BB->addInstruction(Inst, InsertBefore);
   if (Inst->getOpCode() != OpSpecConstantOp)
@@ -1626,11 +1626,35 @@ SPIRVInstruction *SPIRVModuleImpl::addVariable(
     SPIRVType *Type, bool IsConstant, SPIRVLinkageTypeKind LinkageTy,
     SPIRVValue *Initializer, const std::string &Name,
     SPIRVStorageClassKind StorageClass, SPIRVBasicBlock *BB) {
+  if (BB) {
+    // Try adding variables always at the beginning of the first block of a
+    // function
+    auto VariableBB = BB == BB->getParent()->getBasicBlock(0)
+                          ? BB
+                          : BB->getParent()->getBasicBlock(0);
+    SPIRVVariable *Variable = new SPIRVVariable(
+        Type, getId(), Initializer, Name, StorageClass, VariableBB, this);
+    auto LastVariable = VariableBB->getTerminateInstr();
+    if (LastVariable && !LastVariable->isVariable()) {
+      // Search block for label instruction and insert after
+      // or before first found variable instruction
+      for (auto Inst = VariableBB->getInst(0); Inst != LastVariable;
+           Inst = VariableBB->getNext(Inst)) {
+        if (Inst->isLabel()) {
+          LastVariable = VariableBB->getNext(Inst);
+          break;
+        } else if (Inst->isVariable()) {
+          LastVariable = Inst;
+          break;
+        }
+      }
+      return addInstruction(Variable, VariableBB, LastVariable);
+    }
+    return addInstruction(Variable, VariableBB);
+  }
+
   SPIRVVariable *Variable = new SPIRVVariable(Type, getId(), Initializer, Name,
                                               StorageClass, BB, this);
-  if (BB)
-    return addInstruction(Variable, BB);
-
   add(Variable);
   // Vulkan does not support Linkage nor Constant decorations
   if (!UseVulkan) {
