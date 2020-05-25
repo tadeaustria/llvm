@@ -323,6 +323,47 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     }
   }
 
+  if (BranchInst *Branch = dyn_cast<BranchInst>(V)) {
+    SPIRVLabel *SuccessorTrue = static_cast<SPIRVLabel *>(
+        LLVMToSPIRV::transValue(Branch->getSuccessor(0), BB));
+
+    std::vector<SPIRVWord> Parameters;
+    spv::LoopControlMask LoopControl = getLoopControl(Branch, Parameters);
+
+    // Somehow the logic in SPIRVWriter.cpp is not working properly.
+    // It seems valid but somehow it is impossible to add
+    // loop meta data to the branch instruction and therefore
+    // it will not be converted into an structured CFG in SPIRV
+    // This "fix" instead uses for for-loop increment block
+    // by simple label name match. This then has the back edge
+    // and uses the same logic as original code 
+    if (Branch->isUnconditional()) {
+      // For "for" and "while" loops llvm.loop metadata is attached to
+      // an unconditional branch instruction.
+      // if (LoopControl != spv::LoopControlMaskNone) {
+      if (BB->getName().find(".inc") != std::string::npos) {
+        // SuccessorTrue is the loop header BB.
+        const SPIRVInstruction *Term = SuccessorTrue->getTerminateInstr();
+        if (Term && Term->getOpCode() == OpBranchConditional) {
+          const auto *Br = static_cast<const SPIRVBranchConditional *>(Term);
+          BM->addLoopMergeInst(Br->getFalseLabel()->getId(), // Merge Block
+                               BB->getId(),                  // Continue Target
+                               LoopControl, Parameters, SuccessorTrue);
+        } else {
+          if (BM->isAllowedToUseExtension(
+                  ExtensionID::SPV_INTEL_unstructured_loop_controls)) {
+            // For unstructured loop we add a special loop control instruction.
+            // Simple example of unstructured loop is an infinite loop, that has
+            // no terminate instruction.
+            BM->addLoopControlINTELInst(LoopControl, Parameters, SuccessorTrue);
+          }
+        }
+      }
+      return mapValue(V, BM->addBranchInst(SuccessorTrue, BB));
+    }
+    // TODO: maybe same has to be done with the do; while
+  }
+
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
 }
 
