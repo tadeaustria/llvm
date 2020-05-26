@@ -94,7 +94,7 @@ protected:
   bool isSkippable(Value *V, SPIRVBasicBlock *BB, SPIRVValue **Alternative);
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
-  bool inParameterStructure = false;
+  bool InParameterStructure = false;
 
   SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
 };

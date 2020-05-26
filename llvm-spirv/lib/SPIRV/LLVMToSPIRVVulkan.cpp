@@ -191,17 +191,34 @@ bool LLVMToSPIRVVulkan::transAddressingMode() {
 }
 
 SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
+  LLVMToSPIRVTypeMap::iterator Loc = TypeMap.find(T);
+  if (Loc != TypeMap.end())
+    return Loc->second;
+
+  SPIRVDBG(dbgs() << "[transTypeVulkan] " << *T << '\n');
 
   if (auto ST = dyn_cast<StructType>(T)) {
     assert(ST->isSized());
 
+    SPIRVTypeStruct *Ret;
     if (ST->getStructName().find("_arg_") != std::string::npos) {
-      inParameterStructure = true;
-      auto ret = LLVMToSPIRV::transType(T);
-      inParameterStructure = false;
-      return ret;
+      InParameterStructure = true;
+       Ret =
+          reinterpret_cast<SPIRVTypeStruct*>(LLVMToSPIRV::transType(T));
+      InParameterStructure = false;
+      Ret->addDecorate(DecorationBlock);
+
+      //Ret->size
+    } else {
+      Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
     }
 
+    for (size_t I = 0; I < ST->getNumElements(); I++) {
+      auto StructLayout = M->getDataLayout().getStructLayout(ST);
+      Ret->addMemberDecorate(I, DecorationOffset,
+                             StructLayout->getElementOffset(I));
+    }
+    return Ret;
     /*for (unsigned I = 0, E = T->getStructNumElements(); I != E; ++I) {
       auto *ElemTy = ST->getElementType(I);
       if ((isa<StructType>(ElemTy) || isa<SequentialType>(ElemTy) ||
@@ -212,7 +229,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
         Struct->setMemberType(I, transType(ST->getElementType(I)));
     */
   } else if (auto Pt = dyn_cast<PointerType>(T)) {
-    if (inParameterStructure) {
+    if (InParameterStructure) {
       auto subtype = Pt->getElementType();
       /*auto subsubtype = subtype->getElementType();
       auto addrspace = SPIRSPIRVAddrSpaceMap::map(
@@ -221,8 +238,18 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
       return mapType(
           T, BM->addPointerType(
                  addrspace, BM->addRuntimeArrayType(transType(subsubtype))));*/
-      return BM->addRuntimeArrayType(transType(subtype));
+      
+      auto RtArray = BM->addRuntimeArrayType(transType(subtype));
+      RtArray->addDecorate(
+          DecorationArrayStride,
+          M->getDataLayout().getTypeStoreSize(subtype).getFixedSize());
+      return RtArray;
     }
+  } else if (auto Ar = dyn_cast<ArrayType>(T)) {
+    auto NewArr = LLVMToSPIRV::transType(T);
+    NewArr->addDecorate(DecorationArrayStride, 
+          M->getDataLayout().getTypeStoreSize(Ar->getArrayElementType()).getFixedSize());
+    return NewArr;
   }
 
   return LLVMToSPIRV::transType(T);
@@ -244,6 +271,17 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     return Alternative;
   }
 
+  if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
+    auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(V, BB);
+    auto Pos = GV->getName().find("_arg_");
+    if (Pos != std::string::npos) {
+      auto IDString = GV->getName()[Pos + 5];
+      auto ID = std::stoi(&IDString);
+      TransValue->addDecorate(DecorationDescriptorSet, 0);
+      TransValue->addDecorate(DecorationBinding, ID);
+    } 
+    return TransValue;
+  }
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
     std::vector<SPIRVValue *> Indices;
     for (unsigned I = 0, E = GEP->getNumIndices(); I != E; ++I)
@@ -277,18 +315,21 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
 
     auto TypePointer = cast<PointerType>(GEP->getPointerOperand()->getType());
     if (TypePointer->getElementType()->isStructTy()) {
+
+      auto Type = GEP->getType();
       if (TypePointer->getElementType()->getStructName().find("_arg_") !=
           std::string::npos) {
-        SPIRVValue *x = Indices[Indices.size() - 1];
-        if (auto constant = reinterpret_cast<SPIRVConstant *>(x)) {
+        // Check if the the last index (the runtime array) is accessed
+        SPIRVValue *LastIndex = Indices[Indices.size() - 1];
+        if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
           if (constant->getZExtIntValue() == 3) {
+            // If yes, add another index to access first element within the 
+            // runtime array to get a element pointer
             Indices.push_back(
                 BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
-            Indices.erase(Indices.begin());
-            return mapValue(
-                V, BM->addAccessChainInst(
-                       transType(GEP->getType()->getPointerElementType()),
-                       TransPointerOperand, Indices, BB, GEP->isInBounds()));
+            // This additional index also changes the type, which is then
+            // one type step down the pointer chain
+            Type = Type->getPointerElementType();
           }
         }
       }
@@ -296,7 +337,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       // The first index in PtrAccessChain is dereferencing the Pointer, this is
       // already implicit in AccessChain
       Indices.erase(Indices.begin());
-      return mapValue(V, BM->addAccessChainInst(transType(GEP->getType()),
+      return mapValue(V, BM->addAccessChainInst(transType(Type),
                                                 TransPointerOperand, Indices,
                                                 BB, GEP->isInBounds()));
     } else {
@@ -314,7 +355,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     if (auto GEP = dyn_cast<GEPOperator>(Source)) {
       auto SourceBaseTy =
           GEP->getPointerOperand()->getType()->getPointerElementType();
-      if (TargetTy->isPointerTy() && TargetTy->getPointerAddressSpace() == 1 &&
+      if (TargetTy->isPointerTy() &&
+          TargetTy->getPointerAddressSpace() == SPIRAS_StorageBuffer &&
           SourceBaseTy->isStructTy() &&
           SourceBaseTy->getStructName().find("_arg_") != std::string::npos) {
         // Well this is a special case, for the data pointer
@@ -570,12 +612,12 @@ SPIRVValue *LLVMToSPIRVVulkan::transIntrinsicInst(IntrinsicInst *II,
                                      LLVMToSPIRV::transValue(Val, BB));
       Init = BM->addCompositeConstant(CompositeTy, Elts);
     }
-    SPIRVType *VarTy = transType(PointerType::get(AT, SPIRV::SPIRAS_Constant));
+    SPIRVType *VarTy = transType(PointerType::get(AT, SPIRV::SPIRAS_Private));
     SPIRVValue *Var =
         BM->addVariable(VarTy, /*isConstant*/ true, spv::LinkageTypeInternal,
-                        Init, "", StorageClassUniformConstant, nullptr);
+                        Init, "", StorageClassFunction, BB);
     SPIRVType *SourceTy =
-        transType(PointerType::get(Val->getType(), SPIRV::SPIRAS_Constant));
+        transType(PointerType::get(Val->getType(), SPIRV::SPIRAS_Private));
     SPIRVValue *Source = BM->addUnaryInst(OpBitcast, SourceTy, Var, BB);
     SPIRVValue *Target = LLVMToSPIRV::transValue(MSI->getRawDest(), BB);
     return BM->addCopyMemoryInst(Target, Source, GetIntrinsicMemoryAccess(MSI),
@@ -591,7 +633,7 @@ bool LLVMToSPIRVVulkan::transDecoration(Value *V, SPIRVValue *BV) {
   return LLVMToSPIRV::transDecoration(V, BV);
 }
 
-// Vulkan allows no allignment decoration (Cap Kernel)
+// Vulkan allows no allignment decoration (Cap Kernel only)
 bool LLVMToSPIRVVulkan::transAlign(Value *V, SPIRVValue *BV) { return true; }
 
 // Vulkan only allows internal linkage, since Capability Linkage is not

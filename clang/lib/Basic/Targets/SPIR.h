@@ -60,7 +60,7 @@ static const unsigned SYCLAddrSpaceMap[] = {
 // generic is not allowed in Vulkan SPIR
 static const unsigned VULKANAddrSpaceMap[] = { 
     0, // Default
-    1, // opencl_global
+    8, // opencl_global
     3, // opencl_local
     2, // opencl_constant
     0, // opencl_private
