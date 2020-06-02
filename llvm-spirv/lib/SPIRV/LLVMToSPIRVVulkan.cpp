@@ -101,14 +101,14 @@ void LLVMToSPIRVVulkan::transFunction(Function *I) {
     }
   }
 
-  if (BF->getModule()->isEntryPoint(spv::ExecutionModelGLCompute,
-                                    BF->getId()) &&
-      BF->shouldFPContractBeDisabled()) {
-    BF->addExecutionMode(BF->getModule()->add(
-        new SPIRVExecutionMode(BF, spv::ExecutionModeContractionOff)));
-  }
-  if (BF->getModule()->isEntryPoint(spv::ExecutionModelGLCompute,
-                                    BF->getId())) {
+  // Enable FP contraction unless proven otherwise
+  joinFPContract(I, FPContract::ENABLED);
+  fpContractUpdateRecursive(I, getFPContract(I));
+
+  bool IsKernelEntryPoint =
+      BF->getModule()->isEntryPoint(spv::ExecutionModelKernel, BF->getId());
+
+  if (IsKernelEntryPoint) {
     collectInputOutputVariables(BF, I);
   }
 }
