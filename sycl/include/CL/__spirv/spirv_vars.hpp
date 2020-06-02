@@ -13,7 +13,7 @@
 
 #ifdef __SYCL_DEVICE_ONLY__
 
-#define __SPIRV_VAR_QUALIFIERS extern "C" const
+#define __SPIRV_VAR_QUALIFIERS __attribute__((address_space(7))) extern "C" const
 
 #if defined(__SYCL_NVPTX__) || defined(__SYCL_EXPLICIT_SIMD__)
 
@@ -53,7 +53,8 @@ SYCL_EXTERNAL uint32_t __spirv_SubgroupLocalInvocationId();
 
 #else // __SYCL_NVPTX__
 
-typedef size_t size_t_vec __attribute__((ext_vector_type(3)));
+// Vulkan explicitly needs a 32-bit vector
+typedef uint32_t size_t_vec __attribute__((ext_vector_type(3)));
 __SPIRV_VAR_QUALIFIERS size_t_vec __spirv_BuiltInGlobalSize;
 __SPIRV_VAR_QUALIFIERS size_t_vec __spirv_BuiltInGlobalInvocationId;
 __SPIRV_VAR_QUALIFIERS size_t_vec __spirv_BuiltInWorkgroupSize;
@@ -78,25 +79,15 @@ SYCL_EXTERNAL inline size_t __spirv_GlobalInvocationId_z() {
   return __spirv_BuiltInGlobalInvocationId.z;
 }
 
-SYCL_EXTERNAL inline size_t __spirv_GlobalSize_x() {
-  return __spirv_BuiltInGlobalSize.x;
-}
-SYCL_EXTERNAL inline size_t __spirv_GlobalSize_y() {
-  return __spirv_BuiltInGlobalSize.y;
-}
-SYCL_EXTERNAL inline size_t __spirv_GlobalSize_z() {
-  return __spirv_BuiltInGlobalSize.z;
-}
-
-SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_x() {
-  return __spirv_BuiltInGlobalOffset.x;
-}
-SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_y() {
-  return __spirv_BuiltInGlobalOffset.y;
-}
-SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_z() {
-  return __spirv_BuiltInGlobalOffset.z;
-}
+//SYCL_EXTERNAL inline size_t __spirv_GlobalSize_x() {
+//  return __spirv_BuiltInGlobalSize.x;
+//}
+//SYCL_EXTERNAL inline size_t __spirv_GlobalSize_y() {
+//  return __spirv_BuiltInGlobalSize.y;
+//}
+//SYCL_EXTERNAL inline size_t __spirv_GlobalSize_z() {
+//  return __spirv_BuiltInGlobalSize.z;
+//}
 
 SYCL_EXTERNAL inline size_t __spirv_NumWorkgroups_x() {
   return __spirv_BuiltInNumWorkgroups.x;
@@ -116,6 +107,16 @@ SYCL_EXTERNAL inline size_t __spirv_WorkgroupSize_y() {
 }
 SYCL_EXTERNAL inline size_t __spirv_WorkgroupSize_z() {
   return __spirv_BuiltInWorkgroupSize.z;
+}
+
+SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_x() {
+  return __spirv_WorkgroupSize_x() * __spirv_BuiltInGlobalOffset.x;
+}
+SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_y() {
+  return __spirv_WorkgroupSize_y() * __spirv_BuiltInGlobalOffset.y;
+}
+SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_z() {
+  return __spirv_WorkgroupSize_z() * __spirv_BuiltInGlobalOffset.z;
 }
 
 SYCL_EXTERNAL inline size_t __spirv_WorkgroupId_x() {
@@ -152,6 +153,16 @@ SYCL_EXTERNAL inline uint32_t __spirv_SubgroupId() {
 }
 SYCL_EXTERNAL inline uint32_t __spirv_SubgroupLocalInvocationId() {
   return __spirv_BuiltInSubgroupLocalInvocationId;
+}
+
+SYCL_EXTERNAL inline size_t __spirv_GlobalSize_x() {
+  return __spirv_NumWorkgroups_x() * __spirv_WorkgroupSize_x();
+}
+SYCL_EXTERNAL inline size_t __spirv_GlobalSize_y() {
+  return __spirv_NumWorkgroups_y() * __spirv_WorkgroupSize_y();
+}
+SYCL_EXTERNAL inline size_t __spirv_GlobalSize_z() {
+  return __spirv_NumWorkgroups_z() * __spirv_WorkgroupSize_z();
 }
 
 #endif // __SYCL_NVPTX__

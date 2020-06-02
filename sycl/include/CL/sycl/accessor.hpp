@@ -800,9 +800,11 @@ protected:
 
   using ConcreteASPtrType = typename detail::PtrValueType<DataT, AS>::type *;
 
-  using RefType = detail::const_if_const_AS<AS, DataT> &;
+  // GOGLDA: Not sure why AS is dropped for this types, test with AS included for Vulkan
+  // Replaced DataT -> typename detail::PtrValueType<DataT, AS>::type
+  using RefType = detail::const_if_const_AS<AS, typename detail::PtrValueType<DataT, AS>::type> &;
   using ConstRefType = const DataT &;
-  using PtrType = detail::const_if_const_AS<AS, DataT> *;
+  using PtrType = detail::const_if_const_AS<AS, typename detail::PtrValueType<DataT, AS>::type> *;
 
   template <int Dims = Dimensions> size_t getLinearIndex(id<Dims> Id) const {
 
