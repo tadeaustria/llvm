@@ -41,28 +41,26 @@ template <class To, class From> To cast(From value) {
   return (To)(value);
 }
 
-// Older versions of GCC don't like "const" here
-#if defined(__GNUC__) && (__GNUC__ < 7 || (__GNU__C == 7 && __GNUC_MINOR__ < 2))
-#define CONSTFIX constexpr
-#else
-#define CONSTFIX const
-#endif
-
-// Names of USM functions that are queried from OpenCL
-CONSTFIX char clHostMemAllocName[] = "clHostMemAllocINTEL";
-CONSTFIX char clDeviceMemAllocName[] = "clDeviceMemAllocINTEL";
-CONSTFIX char clSharedMemAllocName[] = "clSharedMemAllocINTEL";
-CONSTFIX char clMemFreeName[] = "clMemFreeINTEL";
-CONSTFIX char clSetKernelArgMemPointerName[] = "clSetKernelArgMemPointerINTEL";
-CONSTFIX char clEnqueueMemsetName[] = "clEnqueueMemsetINTEL";
-CONSTFIX char clEnqueueMemcpyName[] = "clEnqueueMemcpyINTEL";
-CONSTFIX char clEnqueueMigrateMemName[] = "clEnqueueMigrateMemINTEL";
-CONSTFIX char clEnqueueMemAdviseName[] = "clEnqueueMemAdviseINTEL";
-CONSTFIX char clGetMemAllocInfoName[] = "clGetMemAllocInfoINTEL";
-CONSTFIX char clSetProgramSpecializationConstantName[] =
-    "clSetProgramSpecializationConstant";
-
-#undef CONSTFIX
+//// Older versions of GCC don't like "const" here
+//#if defined(__GNUC__) && (__GNUC__ < 7 || (__GNU__C == 7 && __GNUC_MINOR__ <
+//2)) #define CONSTFIX constexpr #else #define CONSTFIX const #endif
+//
+//// Names of USM functions that are queried from OpenCL
+// CONSTFIX char clHostMemAllocName[] = "clHostMemAllocINTEL";
+// CONSTFIX char clDeviceMemAllocName[] = "clDeviceMemAllocINTEL";
+// CONSTFIX char clSharedMemAllocName[] = "clSharedMemAllocINTEL";
+// CONSTFIX char clMemFreeName[] = "clMemFreeINTEL";
+// CONSTFIX char clSetKernelArgMemPointerName[] =
+// "clSetKernelArgMemPointerINTEL"; CONSTFIX char clEnqueueMemsetName[] =
+// "clEnqueueMemsetINTEL"; CONSTFIX char clEnqueueMemcpyName[] =
+// "clEnqueueMemcpyINTEL"; CONSTFIX char clEnqueueMigrateMemName[] =
+// "clEnqueueMigrateMemINTEL"; CONSTFIX char clEnqueueMemAdviseName[] =
+// "clEnqueueMemAdviseINTEL"; CONSTFIX char clGetMemAllocInfoName[] =
+// "clGetMemAllocInfoINTEL"; CONSTFIX char
+// clSetProgramSpecializationConstantName[] =
+//    "clSetProgramSpecializationConstant";
+//
+//#undef CONSTFIX
 
 // USM helper function to get an extension function pointer
 template <const char *FuncName, typename T>
@@ -162,6 +160,8 @@ pi_result mapVulkanErrToCLErr(vk::Result result) {
   switch (result) {
   case vk::Result::eSuccess:
     return pi_result::PI_SUCCESS;
+  case vk::Result::eErrorInvalidExternalHandle:
+    return pi_result::PI_INVALID_MEM_OBJECT;
   default:
     return pi_result::PI_ERROR_UNKNOWN;
   }
@@ -273,27 +273,27 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
 
 /// ------ Error handling, matching OpenCL plugin semantics.
 __SYCL_INLINE_NAMESPACE(cl) {
-namespace sycl {
-namespace detail {
-namespace pi {
+  namespace sycl {
+  namespace detail {
+  namespace pi {
 
-// Report error and no return (keeps compiler from printing warnings).
-// TODO: Probably change that to throw a catchable exception,
-//       but for now it is useful to see every failure.
-//
-[[noreturn]] void die(const char *Message) {
-  std::cerr << "pi_die: " << Message << std::endl;
-  std::terminate();
-}
+  // Report error and no return (keeps compiler from printing warnings).
+  // TODO: Probably change that to throw a catchable exception,
+  //       but for now it is useful to see every failure.
+  //
+  [[noreturn]] void die(const char *Message) {
+    std::cerr << "pi_die: " << Message << std::endl;
+    std::terminate();
+  }
 
-// void assertion(bool Condition, const char *Message) {
-//  if (!Condition)
-//    die(Message);
-//}
+  // void assertion(bool Condition, const char *Message) {
+  //  if (!Condition)
+  //    die(Message);
+  //}
 
-} // namespace pi
-} // namespace detail
-} // namespace sycl
+  } // namespace pi
+  } // namespace detail
+  } // namespace sycl
 } // __SYCL_INLINE_NAMESPACE(cl)
 
 pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
@@ -303,9 +303,9 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
     Arguments.resize(ArgIndex + 1);
   }
 
-  DescriptorSetLayoutBinding[ArgIndex] = {
-      ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
-      vk::ShaderStageFlagBits::eCompute};
+  DescriptorSetLayoutBinding[ArgIndex] = {ArgIndex,
+                                          vk::DescriptorType::eStorageBuffer, 1,
+                                          vk::ShaderStageFlagBits::eCompute};
 
   Arguments[ArgIndex] = Memobj;
 
@@ -473,8 +473,7 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
   uint32_t SizeRelevantDevices =
       std::distance(DevicesVec.begin(), RelevantDevicesEnd);
   if (devices) {
-    uint32_t MaxEntries =
-        std::min<uint32_t>(num_entries, SizeRelevantDevices);
+    uint32_t MaxEntries = std::min<uint32_t>(num_entries, SizeRelevantDevices);
     std::vector<vk::PhysicalDevice>::iterator Device = DevicesVec.begin();
     for (uint32_t i = 0; i < MaxEntries; i++, Device++) {
       devices[i] = new _pi_device(*Device, platform);
@@ -1249,18 +1248,27 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
   if (MemoryTypeIndex == VK_MAX_MEMORY_TYPES)
     return PI_OUT_OF_HOST_MEMORY; // or PI_OUT_OF_RESOURCES?
 
-  if (flags & PI_MEM_FLAGS_HOST_PTR_USE) {
-    // TODO: Implement Host pointer copy using VkImportMemoryHostPointerInfoEXT
-    // and maybe VkExportMemoryWin32HandleInfoNV
-    /**ret_mem = new _pi_mem{1,
-                           context->device.allocateMemory(
-                               vk::StructureChain<vk::MemoryAllocateInfo,
-       vk::MemoryAllocateInfo>((size, memoryTypeIndex),
-       (VkExternalMemoryHandleTypeFlagBits::)) context};*/
-    cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
-  } else {
-
-    try {
+  try {
+    if (flags & PI_MEM_FLAGS_HOST_PTR_USE) {
+      // TODO: Implement Host pointer copy using
+      // VkImportMemoryHostPointerInfoEXT and maybe
+      // VkExportMemoryWin32HandleInfoNV
+      vk::StructureChain<vk::MemoryAllocateInfo,
+                         vk::ImportMemoryHostPointerInfoEXT>
+          allocInfo = {
+              vk::MemoryAllocateInfo(size, MemoryTypeIndex),
+              vk::ImportMemoryHostPointerInfoEXT(
+                  vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
+                  host_ptr)};
+      *ret_mem = new _pi_mem{context->Device.allocateMemory(
+                                 allocInfo.get<vk::MemoryAllocateInfo>()),
+                             context->Device.createBuffer(vk::BufferCreateInfo(
+                                 vk::BufferCreateFlags(), size,
+                                 vk::BufferUsageFlagBits::eStorageBuffer,
+                                 vk::SharingMode::eExclusive)),
+                             context};
+      // cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
+    } else {
 
       *ret_mem = new _pi_mem(context->Device.allocateMemory(
                                  vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
@@ -1269,9 +1277,9 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                                  vk::BufferUsageFlagBits::eStorageBuffer,
                                  vk::SharingMode::eExclusive)),
                              context);
-    } catch (vk::SystemError const &Err) {
-      return mapVulkanErrToCLErr(Err);
     }
+  } catch (vk::SystemError const &Err) {
+    return mapVulkanErrToCLErr(Err);
   }
 
   return PI_SUCCESS;
@@ -1376,7 +1384,8 @@ pi_result VLK(piMemBufferPartition)(pi_mem Buffer, pi_mem_flags flags,
 ///
 /// \param mem is the PI mem to get the native handle of.
 /// \param nativeHandle is the native handle of mem.
-pi_result VLK(piextMemGetNativeHandle)(pi_mem mem, pi_native_handle *nativeHandle) {
+pi_result VLK(piextMemGetNativeHandle)(pi_mem mem,
+                                       pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
   *nativeHandle =
       reinterpret_cast<pi_native_handle>(&mem->Memory); // Or return Buffer?
@@ -1770,7 +1779,7 @@ pi_result VLK(piKernelSetExecInfo)(pi_kernel kernel,
 
   //?? what to do here?
 
-  for (int i = 0; i < param_value_size; i++) { // param_value[i]
+  for (size_t i = 0; i < param_value_size; i++) { // param_value[i]
   }
 
   return PI_SUCCESS;
@@ -2134,8 +2143,7 @@ pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piMemRelease, VLK(piMemRelease))
   _PI_CL(piMemBufferPartition, VLK(piMemBufferPartition))
   _PI_CL(piextMemGetNativeHandle, VLK(piextMemGetNativeHandle))
-  _PI_CL(piextMemCreateWithNativeHandle,
-         VLK(piextMemCreateWithNativeHandle))
+  _PI_CL(piextMemCreateWithNativeHandle, VLK(piextMemCreateWithNativeHandle))
   // Program
   _PI_CL(piProgramCreate, VLK(piProgramCreate))
   _PI_CL(piclProgramCreateWithSource, VLK(piclProgramCreateWithSource))
