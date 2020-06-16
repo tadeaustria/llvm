@@ -106,7 +106,7 @@ void LLVMToSPIRVVulkan::transFunction(Function *I) {
   fpContractUpdateRecursive(I, getFPContract(I));
 
   bool IsKernelEntryPoint =
-      BF->getModule()->isEntryPoint(spv::ExecutionModelKernel, BF->getId());
+      BF->getModule()->isEntryPoint(spv::ExecutionModelGLCompute, BF->getId());
 
   if (IsKernelEntryPoint) {
     collectInputOutputVariables(BF, I);

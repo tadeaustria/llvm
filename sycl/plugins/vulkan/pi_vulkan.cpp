@@ -43,7 +43,7 @@ template <class To, class From> To cast(From value) {
 
 //// Older versions of GCC don't like "const" here
 //#if defined(__GNUC__) && (__GNUC__ < 7 || (__GNU__C == 7 && __GNUC_MINOR__ <
-//2)) #define CONSTFIX constexpr #else #define CONSTFIX const #endif
+// 2)) #define CONSTFIX constexpr #else #define CONSTFIX const #endif
 //
 //// Names of USM functions that are queried from OpenCL
 // CONSTFIX char clHostMemAllocName[] = "clHostMemAllocINTEL";
@@ -1249,34 +1249,44 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     return PI_OUT_OF_HOST_MEMORY; // or PI_OUT_OF_RESOURCES?
 
   try {
-    if (flags & PI_MEM_FLAGS_HOST_PTR_USE) {
-      // TODO: Implement Host pointer copy using
-      // VkImportMemoryHostPointerInfoEXT and maybe
-      // VkExportMemoryWin32HandleInfoNV
-      vk::StructureChain<vk::MemoryAllocateInfo,
-                         vk::ImportMemoryHostPointerInfoEXT>
-          allocInfo = {
-              vk::MemoryAllocateInfo(size, MemoryTypeIndex),
-              vk::ImportMemoryHostPointerInfoEXT(
-                  vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
-                  host_ptr)};
-      *ret_mem = new _pi_mem{context->Device.allocateMemory(
-                                 allocInfo.get<vk::MemoryAllocateInfo>()),
-                             context->Device.createBuffer(vk::BufferCreateInfo(
-                                 vk::BufferCreateFlags(), size,
-                                 vk::BufferUsageFlagBits::eStorageBuffer,
-                                 vk::SharingMode::eExclusive)),
-                             context};
-      // cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
-    } else {
+    // if (flags & PI_MEM_FLAGS_HOST_PTR_USE) {
+    //  // TODO: Implement Host pointer copy using
+    //  // VkImportMemoryHostPointerInfoEXT and maybe
+    //  // VkExportMemoryWin32HandleInfoNV
+    //  vk::StructureChain<vk::MemoryAllocateInfo,
+    //                     vk::ImportMemoryHostPointerInfoEXT>
+    //      allocInfo = {
+    //          vk::MemoryAllocateInfo(size, MemoryTypeIndex),
+    //          vk::ImportMemoryHostPointerInfoEXT(
+    //              vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
+    //              host_ptr)};
+    //  *ret_mem = new _pi_mem{context->Device.allocateMemory(
+    //                             allocInfo.get<vk::MemoryAllocateInfo>()),
+    //                         context->Device.createBuffer(vk::BufferCreateInfo(
+    //                             vk::BufferCreateFlags(), size,
+    //                             vk::BufferUsageFlagBits::eStorageBuffer,
+    //                             vk::SharingMode::eExclusive)),
+    //                         context};
+    //  // cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
+    //} else {
 
-      *ret_mem = new _pi_mem(context->Device.allocateMemory(
-                                 vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
-                             context->Device.createBuffer(vk::BufferCreateInfo(
-                                 vk::BufferCreateFlags(), size,
-                                 vk::BufferUsageFlagBits::eStorageBuffer,
-                                 vk::SharingMode::eExclusive)),
-                             context);
+    auto NewMem =
+        new _pi_mem(context->Device.allocateMemory(
+                        vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
+                    context->Device.createBuffer(vk::BufferCreateInfo(
+                        vk::BufferCreateFlags(), size,
+                        vk::BufferUsageFlagBits::eStorageBuffer,
+                        vk::SharingMode::eExclusive)),
+                    context);
+    //}
+    *ret_mem = NewMem;
+	// FIXME: Not sure how or even if 'host pointer use' works in vulkan
+	// for now copy data
+    if (flags & PI_MEM_FLAGS_HOST_PTR_USE ||
+        flags & PI_MEM_FLAGS_HOST_PTR_COPY) {
+      auto deviceData = context->Device.mapMemory(NewMem->Memory, 0, size);
+      memcpy(deviceData, host_ptr, size);
+      context->Device.unmapMemory(NewMem->Memory);
     }
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
