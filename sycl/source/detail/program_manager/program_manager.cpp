@@ -242,6 +242,10 @@ static bool isDeviceBinaryTypeSupported(const context &C,
   if (ContextBackend == backend::cuda)
     return false;
 
+  // The Vulkan backend supports only SPIRV
+  if (ContextBackend == backend::vulkan && Format == PI_DEVICE_BINARY_TYPE_SPIRV)
+    return true;
+
   vector_class<device> Devices = C.get_devices();
 
   // Program type is SPIR-V, so we need a device compiler to do JIT.
