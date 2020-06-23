@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <map>
 #include <vulkan/vulkan.hpp>
 
 extern "C" {
@@ -132,11 +133,16 @@ struct _pi_program : public _ref_counter {
   }
 };
 
+using argAdditonal_t = std::pair<size_t, const void *>;
+
 struct _pi_kernel : public _ref_counter {
   // vk::ShaderModule module;
   const char *Name;
   std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
   std::vector<pi_mem> Arguments;
+
+  std::map<pi_uint32, std::vector<argAdditonal_t>> ArgumentsAdditional;
+
   pi_program Program_;
   _pi_kernel(const char *Name_, pi_program Program)
       : _ref_counter{1}, Name(Name_), Program_(Program) {
@@ -150,6 +156,7 @@ struct _pi_kernel : public _ref_counter {
   }
 
   pi_result addArgument(pi_uint32 ArgIndex, pi_mem Memobj);
+  pi_result addArgument(pi_uint32 ArgIndex, argAdditonal_t arg);
 };
 
 #undef VLK
