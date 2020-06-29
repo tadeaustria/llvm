@@ -1140,12 +1140,15 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
       vk::DeviceQueueCreateFlags(),
       static_cast<uint32_t>(ComputeQueueFamilyIndex), 1, &QueuePriority);
 
+  const char *enabledExtensions[] = {"VK_KHR_variable_pointers"};
+
   pi_context Context = new _pi_context();
   Context->RefCounter_ = 1;
   Context->PhDevice_ = Device;
   Context->ComputeQueueFamilyIndex = ComputeQueueFamilyIndex;
   Context->Device = PhysicalDevice.createDevice(
-      vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1, &deviceQueueCreateInfo));
+      vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1, &deviceQueueCreateInfo,
+                           0, nullptr, 1, enabledExtensions));
 
   *retcontext = Context;
   return Errcode_ret;
@@ -1366,7 +1369,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
 
     auto NewMem =
         new _pi_mem(context->Device.allocateMemory(
-                        vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
+                        vk::MemoryAllocateInfo(ExtendedSize, MemoryTypeIndex)),
                     context->Device.createBuffer(vk::BufferCreateInfo(
                         vk::BufferCreateFlags(), ExtendedSize,
                         vk::BufferUsageFlagBits::eStorageBuffer,
@@ -1552,6 +1555,15 @@ pi_result VLK(piProgramCreate)(pi_context context, const void *il,
   //        cast<cl_context>(context), il, length, cast<cl_int *>(&err)));
   //  return err;
   //}
+
+  // vk::ShaderModuleCreateInfo blah(vk::ShaderModuleCreateFlags(), length,
+  //                                 reinterpret_cast<const uint32_t *>(il));
+
+  // VkShaderModuleCreateInfo blah2;
+  // blah2 = blah;
+
+  // VkShaderModule mod;
+  // auto vkresult = vkCreateShaderModule(context->Device, &blah2, nullptr, &mod);
 
   // devide length here due to reinterprete?
   auto Program = std::make_unique<_pi_program>(
