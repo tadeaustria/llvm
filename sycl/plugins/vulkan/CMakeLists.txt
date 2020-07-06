@@ -10,7 +10,7 @@
 #TODO: Currently, the pi.hpp header is common between sycl and plugin library sources. 
 #This can be changed by copying the pi.hpp file in the plugins project.
 
-find_package(Vulkan REQUIRED)
+find_package(Vulkan 1.2.141 REQUIRED)
 
 add_library(pi_vulkan SHARED
   "${sycl_inc_dir}/CL/sycl/detail/pi.h"

@@ -365,7 +365,7 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
       reinterpret_cast<bufferoverlay_t<1> *>(Memobj->Context_->Device.mapMemory(
           Memobj->Memory, 0, sizeof(bufferoverlay_t<1>)));
 
-  for (size_t i = 0; i < min(ArgumentsAdditional[ArgIndex].size(), 3); i++) {
+  for (size_t i = 0; i < std::min<size_t>(ArgumentsAdditional[ArgIndex].size(), 3ul); i++) {
     void *target = nullptr;
     switch (i) {
     case 0:
@@ -618,7 +618,7 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
   case PI_DEVICE_INFO_MAX_WORK_ITEM_SIZES: {
     auto Limits = Properties.limits;
     return getInfoArray(MaxWorkItemDims, param_value_size, param_value,
-                        param_value_size_ret, Limits.maxComputeWorkGroupSize);
+                        param_value_size_ret, Limits.maxComputeWorkGroupSize.data());
   }
   case PI_DEVICE_INFO_MAX_WORK_GROUP_SIZE: {
     auto Limits = Properties.limits;
@@ -2008,7 +2008,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
     CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
         vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
-    CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, Pipeline.get());
+    CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, Pipeline.value.get());
 
     CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                                      PipelineLayout.get(), 0, 1,
