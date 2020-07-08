@@ -80,13 +80,16 @@ struct _pi_context : public _ref_counter {
 
 struct _pi_queue : public _ref_counter {
   vk::Queue Queue;
+  vk::UniqueCommandPool CommandPool;
   vk::CommandBuffer CmdBuffer;
   pi_context Context_;
   pi_queue_properties Properties_;
 
-  _pi_queue(vk::Queue &&queue_, vk::CommandBuffer &&buffer_, pi_context context,
+  _pi_queue(vk::Queue &&queue_, vk::UniqueCommandPool &&pool,
+            vk::CommandBuffer &&buffer_, pi_context context,
             pi_queue_properties properties)
-      : _ref_counter{1}, Queue(queue_), CmdBuffer(buffer_), Context_(context),
+      : _ref_counter{1}, Queue(queue_), CommandPool(std::move(pool)), CmdBuffer(buffer_),
+        Context_(context),
         Properties_(properties) {
     if (Context_)
       VLK(piContextRetain)(Context_);
@@ -106,6 +109,7 @@ struct _pi_mem : public _ref_counter {
       : _ref_counter{1}, Memory(Memory_), Buffer(Buffer_), Context_(Context) {
     if (Context_)
       VLK(piContextRetain)(Context_);
+    Context_->Device.bindBufferMemory(Buffer, Memory, 0);
   }
 
   ~_pi_mem() {
@@ -133,15 +137,13 @@ struct _pi_program : public _ref_counter {
   }
 };
 
-using argAdditonal_t = std::pair<size_t, const void *>;
-
 struct _pi_kernel : public _ref_counter {
   // vk::ShaderModule module;
   const char *Name;
   std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
-  std::vector<pi_mem> Arguments;
+  // std::vector<pi_mem> Arguments;
 
-  std::map<pi_uint32, std::vector<argAdditonal_t>> ArgumentsAdditional;
+  std::map<pi_uint32, pi_mem> Arguments;
 
   pi_program Program_;
   _pi_kernel(const char *Name_, pi_program Program)
@@ -153,10 +155,13 @@ struct _pi_kernel : public _ref_counter {
   ~_pi_kernel() {
     if (Program_)
       VLK(piProgramRelease)(Program_);
+    for (auto args : Arguments) {
+      VLK(piMemRelease)(args.second);
+    }
   }
 
   pi_result addArgument(pi_uint32 ArgIndex, pi_mem Memobj);
-  pi_result addArgument(pi_uint32 ArgIndex, argAdditonal_t arg);
+  pi_result addArgument(pi_uint32 ArgIndex, size_t arg_size, const void *arg_value);
 };
 
 #undef VLK

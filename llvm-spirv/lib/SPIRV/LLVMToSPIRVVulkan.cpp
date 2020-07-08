@@ -230,6 +230,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     */
   } else if (auto Pt = dyn_cast<PointerType>(T)) {
     if (InParameterStructure) {
+    //if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
       auto subtype = Pt->getElementType();
       /*auto subsubtype = subtype->getElementType();
       auto addrspace = SPIRSPIRVAddrSpaceMap::map(
@@ -243,6 +244,8 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
       RtArray->addDecorate(
           DecorationArrayStride,
           M->getDataLayout().getTypeStoreSize(subtype).getFixedSize());
+      /*return BM->addPointerType(SPIRSPIRVAddrSpaceMap::map(
+          static_cast<SPIRAddressSpace>(Pt->getAddressSpace())), RtArray);*/
       return RtArray;
     }
   } else if (auto Ar = dyn_cast<ArrayType>(T)) {
@@ -253,6 +256,24 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
   }
 
   return LLVMToSPIRV::transType(T);
+}
+
+Value *backtrace(Value *V, std::vector<Value *> &indizes,
+                 std::vector<Value *> &origindizes) { 
+  if (auto GEP = dyn_cast<GetElementPtrInst>(V)) {
+    if (GEP->getNumOperands() < 3) {
+      indizes.push_back(GEP->getOperand(1));
+    }
+    origindizes.clear();
+    for (size_t i = 1; i < GEP->getNumOperands(); i++) {
+      origindizes.push_back(GEP->getOperand(i));
+    }
+    return backtrace(GEP->getPointerOperand(), indizes, origindizes);
+  } else if (auto Load = dyn_cast<LoadInst>(V)) {
+    return backtrace(Load->getPointerOperand(), indizes, origindizes);
+  }
+
+  return V;
 }
 
 /// An instruction may use an instruction from another BB which has not been
@@ -273,9 +294,9 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
 
   if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
     auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(V, BB);
-    auto Pos = GV->getName().find("_arg_");
+    auto Pos = GV->getName().find("rg_");
     if (Pos != std::string::npos) {
-      auto IDString = GV->getName()[Pos + 5];
+      auto IDString = GV->getName()[Pos + 3];
       auto ID = std::stoi(&IDString);
       TransValue->addDecorate(DecorationDescriptorSet, 0);
       TransValue->addDecorate(DecorationBinding, ID);
@@ -313,16 +334,61 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       IndexGroupArrayMap[IndexGroup] = TransPointerOperand->getId();
     }
 
+    std::vector<Value *> OtherIndizes;
+    std::vector<Value *> OrigIndices;
+    Value *originGEP = backtrace(GEP, OtherIndizes, OrigIndices);
+    // Get origin
+    /*while (GetElementPtrInst *prevprevGEP =
+               dyn_cast<GetElementPtrInst>(originGEP->getPointerOperand())) {
+      originGEP = prevprevGEP;
+    }*/
+
+    if (originGEP->getName().find("_arg_0") !=
+        std::string::npos) {
+      std::vector<SPIRVValue *> MyIndices;
+      // printf("Found Arg as Origin %llu\n", OtherIndizes.size());
+      for (auto OrgIndex = OrigIndices.begin() + 1; OrgIndex != OrigIndices.end(); OrgIndex++) {
+        MyIndices.push_back(LLVMToSPIRV::transValue(*OrgIndex, BB));
+      }
+
+      if (OtherIndizes.size() == 1) {
+        MyIndices.push_back(LLVMToSPIRV::transValue(OtherIndizes[0], BB));
+        return mapValue(
+            V, BM->addAccessChainInst(transType(GEP->getType()),
+                                      LLVMToSPIRV::transValue(originGEP, BB),
+                                      MyIndices, BB, GEP->isInBounds()));
+      } else if (OtherIndizes.size() > 1) {
+        auto addRes = BM->addBinaryInst(
+            OpIAdd, LLVMToSPIRV::transType(OtherIndizes[0]->getType()),
+            LLVMToSPIRV::transValue(OtherIndizes[0], BB),
+            LLVMToSPIRV::transValue(OtherIndizes[1], BB), BB);
+        for (size_t i = 2; i < OtherIndizes.size(); i++) {
+          addRes = BM->addBinaryInst(
+              OpIAdd, addRes->getType(), addRes,
+              LLVMToSPIRV::transValue(OtherIndizes[i], BB), BB);
+        }
+        MyIndices.push_back(addRes);
+        return mapValue(
+            V, BM->addAccessChainInst(transType(GEP->getType()),
+                                      LLVMToSPIRV::transValue(originGEP, BB),
+                                      MyIndices, BB, GEP->isInBounds()));
+      }
+
+    }
+
     auto TypePointer = cast<PointerType>(GEP->getPointerOperand()->getType());
     if (TypePointer->getElementType()->isStructTy()) {
 
       auto Type = GEP->getType();
       if (TypePointer->getElementType()->getStructName().find("_arg_") !=
           std::string::npos) {
-        // Check if the the last index (the runtime array) is accessed
-        SPIRVValue *LastIndex = Indices[Indices.size() - 1];
-        if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
-          if (constant->getZExtIntValue() == 3) {
+        auto accessedType =
+            TypePointer->getElementType()->getStructElementType(0);
+        if (accessedType->isPointerTy()){ //Access to RuntimeArray?
+        //// Check if the the last index (the runtime array) is accessed
+        //SPIRVValue *LastIndex = Indices[Indices.size() - 1];
+        //if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
+        //  if (constant->getZExtIntValue() == 3) {
             // If yes, add another index to access first element within the 
             // runtime array to get a element pointer
             Indices.push_back(
@@ -331,7 +397,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
             // one type step down the pointer chain
             Type = Type->getPointerElementType();
           }
-        }
+        //}
       }
       // Remove First Index due to difference in AccessChain and PtrAccessChain
       // The first index in PtrAccessChain is dereferencing the Pointer, this is
