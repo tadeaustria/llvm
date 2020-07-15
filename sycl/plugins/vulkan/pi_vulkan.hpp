@@ -23,12 +23,12 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <numeric>
 #include <stdint.h>
 #include <string>
 #include <vector>
-#include <map>
 #include <vulkan/vulkan.hpp>
 
 extern "C" {
@@ -64,8 +64,7 @@ struct _pi_device {
   pi_platform Platform_;
 
   _pi_device(vk::PhysicalDevice PhDevice_, pi_platform Platform)
-      : PhDevice(PhDevice_), Platform_(Platform){}
-
+      : PhDevice(PhDevice_), Platform_(Platform) {}
 };
 
 struct _ref_counter {
@@ -88,9 +87,8 @@ struct _pi_queue : public _ref_counter {
   _pi_queue(vk::Queue &&queue_, vk::UniqueCommandPool &&pool,
             vk::CommandBuffer &&buffer_, pi_context context,
             pi_queue_properties properties)
-      : _ref_counter{1}, Queue(queue_), CommandPool(std::move(pool)), CmdBuffer(buffer_),
-        Context_(context),
-        Properties_(properties) {
+      : _ref_counter{1}, Queue(queue_), CommandPool(std::move(pool)),
+        CmdBuffer(buffer_), Context_(context), Properties_(properties) {
     if (Context_)
       VLK(piContextRetain)(Context_);
   }
@@ -161,7 +159,31 @@ struct _pi_kernel : public _ref_counter {
   }
 
   pi_result addArgument(pi_uint32 ArgIndex, pi_mem Memobj);
-  pi_result addArgument(pi_uint32 ArgIndex, size_t arg_size, const void *arg_value);
+  pi_result addArgument(pi_uint32 ArgIndex, size_t arg_size,
+                        const void *arg_value);
+};
+
+struct _pi_event : public _ref_counter {
+  _pi_event() : _ref_counter{1} {}
+  virtual void wait() = 0;
+};
+
+struct _pi_empty_event : public _pi_event {
+  void wait() override { return; }
+};
+
+template <typename T> struct _pi_event_impl : public _pi_event {
+
+  T &myObj;
+  bool waited = false;
+  _pi_event_impl(T &obj) : _pi_event(), myObj(obj) {}
+  void wait() override {
+    if (!waited) {
+      myObj.waitIdle();
+      waited = true;
+    }
+  }
+
 };
 
 #undef VLK

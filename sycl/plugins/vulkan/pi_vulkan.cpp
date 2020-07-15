@@ -21,7 +21,6 @@
 
 #include <cassert>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <map>
 #include <string>
@@ -42,7 +41,6 @@ template <class To, class From> To cast(From value) {
   static_assert(sizeof(From) == sizeof(To), "cast failed size check");
   return (To)(value);
 }
-
 
 // USM helper function to get an extension function pointer
 template <const char *FuncName, typename T>
@@ -319,7 +317,7 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
   DescriptorSetLayoutBinding[ArgIndex] = {ArgIndex,
                                           vk::DescriptorType::eStorageBuffer, 1,
                                           vk::ShaderStageFlagBits::eCompute};
-  
+
   Arguments[ArgIndex] = Memobj;
   VLK(piMemRetain)(Memobj);
 
@@ -341,7 +339,7 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
     VLK(piMemBufferCreate)
     (Program_->Context_, PI_MEM_FLAGS_HOST_PTR_COPY, arg_size,
      const_cast<void *>(arg_value), &mem);
-    
+
     Arguments[ArgIndex] = mem;
   } else {
     VLK(piMemRelease)(vec->second);
@@ -392,12 +390,13 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
                                               1, VK_API_VERSION_1_1);
 
           // initialize the vk::InstanceCreateInfo
-          const char *List[] = {//"VK_LAYER_LUNARG_vktrace",
-                                "VK_LAYER_LUNARG_api_dump",
-                                "VK_LAYER_KHRONOS_validation"};
-          vk::InstanceCreateInfo instanceCreateInfo(
-              {}, &applicationInfo, sizeof(List) / sizeof(decltype(List)),
-              List);
+          std::vector<const char *> List = {
+                                            //"VK_LAYER_LUNARG_vktrace",
+                                            //"VK_LAYER_LUNARG_api_dump",
+                                            //"VK_LAYER_KHRONOS_validation"
+          };
+          vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
+                                                    List.size(), List.data());
           Platform.Instance_ = vk::createInstance(instanceCreateInfo);
 
         },
@@ -449,7 +448,7 @@ pi_result VLK(piPlatformGetInfo)(pi_platform platform,
 pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
                             pi_uint32 num_entries, pi_device *devices,
                             pi_uint32 *num_devices) {
-  
+
   auto DevicesVec = platform->Instance_.enumeratePhysicalDevices();
 
   auto RelevantDevicesEnd =
@@ -1057,19 +1056,32 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
 
   // create a UniqueDevice
   float QueuePriority = 0.0f;
-  vk::DeviceQueueCreateInfo deviceQueueCreateInfo(
+  vk::DeviceQueueCreateInfo DeviceQueueCreateInfo(
       vk::DeviceQueueCreateFlags(),
       static_cast<uint32_t>(ComputeQueueFamilyIndex), 1, &QueuePriority);
 
-  const char *enabledExtensions[] = {"VK_KHR_variable_pointers"};
+  std::vector<const char *>EnabledExtensions = {"VK_KHR_variable_pointers"};
 
   pi_context Context = new _pi_context();
   Context->RefCounter_ = 1;
   Context->PhDevice_ = Device;
   Context->ComputeQueueFamilyIndex = ComputeQueueFamilyIndex;
-  Context->Device = PhysicalDevice.createDevice(
-      vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1, &deviceQueueCreateInfo,
-                           0, nullptr, 1, enabledExtensions));
+
+  vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
+                     vk::PhysicalDeviceShaderFloat16Int8Features>
+      CreateDeviceInfo = {
+          vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1,
+                               &DeviceQueueCreateInfo, 0, nullptr,
+                               static_cast<uint32_t>(EnabledExtensions.size()),
+                               EnabledExtensions.data()),
+          vk::PhysicalDeviceFeatures2(),
+          vk::PhysicalDeviceShaderFloat16Int8Features()};
+  createDeviceInfo.get<vk::PhysicalDeviceFeatures2>()
+      .features.setShaderInt64(true);
+  createDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
+      .setShaderInt8(true);
+
+  Context->Device = PhysicalDevice.createDevice(CreateDeviceInfo.get<vk::DeviceCreateInfo>());
 
   *retcontext = Context;
   return Errcode_ret;
@@ -1403,7 +1415,7 @@ NOT_IMPL(pi_result VLK(piextMemCreateWithNativeHandle),
 
 pi_result VLK(piProgramCreate)(pi_context context, const void *il,
                                size_t length, pi_program *ret_program) {
-  
+
   auto Program = std::make_unique<_pi_program>(
       context->Device.createShaderModule(
           vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), length,
@@ -1441,7 +1453,7 @@ pi_result VLK(piProgramGetInfo)(pi_program program, pi_program_info param_name,
                                 size_t param_value_size, void *param_value,
                                 size_t *param_value_size_ret) {
   assert(program != nullptr);
-  
+
   switch (param_name) {
   case PI_PROGRAM_INFO_REFERENCE_COUNT:
     return getInfo(param_value_size, param_value, param_value_size_ret,
@@ -1749,8 +1761,12 @@ NOT_IMPL(pi_result VLK(piEventGetProfilingInfo),
          (pi_event event, pi_profiling_info param_name, size_t param_value_size,
           void *param_value, size_t *param_value_size_ret))
 
+/// Wait for all given Events
 pi_result VLK(piEventsWait)(pi_uint32 num_events, const pi_event *event_list) {
-  // What to wait for?!?
+
+  for (pi_uint32 i = 0; i < num_events; i++) {
+    event_list[i]->wait();
+  }
   return PI_SUCCESS;
 }
 
@@ -1761,8 +1777,18 @@ NOT_IMPL(pi_result VLK(piEventSetCallback),
           void *user_data))
 NOT_IMPL(pi_result VLK(piEventSetStatus),
          (pi_event event, pi_int32 execution_status))
-NOT_IMPL(pi_result VLK(piEventRetain), (pi_event event))
-NOT_IMPL(pi_result VLK(piEventRelease), (pi_event event))
+
+pi_result VLK(piEventRetain)(pi_event event) {
+  event->RefCounter_++;
+  return PI_SUCCESS;
+}
+
+pi_result VLK(piEventRelease)(pi_event event) {
+  if (--event->RefCounter_ < 1)
+    free(event);
+  return PI_SUCCESS;
+}
+
 NOT_IMPL(pi_result VLK(piextEventGetNativeHandle),
          (pi_event event, pi_native_handle *nativeHandle))
 NOT_IMPL(pi_result VLK(piextEventCreateWithNativeHandle),
@@ -1782,6 +1808,8 @@ pi_result VLK(piEnqueueKernelLaunch)(
     const size_t *global_work_offset, const size_t *global_work_size,
     const size_t *local_work_size, pi_uint32 num_events_in_wait_list,
     const pi_event *event_wait_list, pi_event *event) {
+
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   auto &Device = Queue->Context_->Device;
 
@@ -1841,8 +1869,6 @@ pi_result VLK(piEnqueueKernelLaunch)(
                                             nullptr};
     }
 
-    Device.waitIdle();
-
     Device.updateDescriptorSets(WriteSets, nullptr);
 
     auto &CommandBuffer = Queue->CmdBuffer;
@@ -1870,7 +1896,9 @@ pi_result VLK(piEnqueueKernelLaunch)(
         Device.getQueue(Queue->Context_->ComputeQueueFamilyIndex, 0);
     VulkanQueue.submit(1, &SubmitInfo, vk::Fence());
     // Device.waitIdle();
-    
+
+    *event = new _pi_event_impl<vk::Device>(Device);
+
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
@@ -1894,6 +1922,7 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
                                       pi_uint32 num_events_in_wait_list,
                                       const pi_event *event_wait_list,
                                       pi_event *event) {
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   pi_result ret = PI_SUCCESS;
 
@@ -1905,7 +1934,7 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
       ret = PI_INVALID_MEM_OBJECT;
     }
     memobj->Context_->Device.unmapMemory(memobj->Memory);
-
+    *event = new _pi_empty_event();
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
@@ -1927,6 +1956,7 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                                        pi_uint32 num_events_in_wait_list,
                                        const pi_event *event_wait_list,
                                        pi_event *event) {
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   command_queue->CmdBuffer.updateBuffer(memobj->Buffer, offset, size, ptr);
   return PI_SUCCESS;
@@ -1947,6 +1977,7 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
                                       pi_uint32 num_events_in_wait_list,
                                       const pi_event *event_wait_list,
                                       pi_event *event) {
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   std::array<vk::BufferCopy, 1> Range = {
       vk::BufferCopy{src_offset, dst_offset, size}};
@@ -2001,6 +2032,7 @@ pi_result VLK(piEnqueueMemBufferMap)(
     size_t offset, size_t size, pi_uint32 num_events_in_wait_list,
     const pi_event *event_wait_list, pi_event *event, void **ret_map) {
 
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
   // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
   vk::Result Error = memobj->Context_->Device.mapMemory(
       memobj->Memory, 0, size, vk::MemoryMapFlags(), ret_map);
@@ -2012,7 +2044,10 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  pi_uint32 num_events_in_wait_list,
                                  const pi_event *event_wait_list,
                                  pi_event *event) {
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
+
   memobj->Context_->Device.unmapMemory(memobj->Memory);
+  *event = new _pi_empty_event();
   return PI_SUCCESS;
 }
 
