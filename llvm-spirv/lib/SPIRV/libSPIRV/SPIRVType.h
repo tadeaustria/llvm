@@ -79,6 +79,7 @@ public:
 
   bool isTypeVoid() const;
   bool isTypeArray() const;
+  bool isTypeRuntimeArray() const;
   bool isTypeBool() const;
   bool isTypeComposite() const;
   bool isTypeEvent() const;

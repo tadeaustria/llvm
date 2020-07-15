@@ -147,6 +147,8 @@ SPIRVType *SPIRVType::getScalarType() const {
 bool SPIRVType::isTypeVoid() const { return OpCode == OpTypeVoid; }
 bool SPIRVType::isTypeArray() const { return OpCode == OpTypeArray; }
 
+bool SPIRVType::isTypeRuntimeArray() const { return OpCode == OpTypeRuntimeArray; }
+
 bool SPIRVType::isTypeBool() const { return OpCode == OpTypeBool; }
 
 bool SPIRVType::isTypeComposite() const {
