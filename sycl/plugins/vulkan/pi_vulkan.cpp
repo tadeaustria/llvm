@@ -33,6 +33,8 @@
     return cast<pi_result>(reterr);                                            \
   }
 
+static_assert(VK_HEADER_VERSION >= 141, "Header Version too low");
+
 const char SupportedVersion[] = _PI_H_VERSION_STRING;
 
 // Want all the needed casts be explicit, do not define conversion operators.
@@ -1076,9 +1078,9 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
                                EnabledExtensions.data()),
           vk::PhysicalDeviceFeatures2(),
           vk::PhysicalDeviceShaderFloat16Int8Features()};
-  createDeviceInfo.get<vk::PhysicalDeviceFeatures2>()
+  CreateDeviceInfo.get<vk::PhysicalDeviceFeatures2>()
       .features.setShaderInt64(true);
-  createDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
+  CreateDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
       .setShaderInt8(true);
 
   Context->Device = PhysicalDevice.createDevice(CreateDeviceInfo.get<vk::DeviceCreateInfo>());

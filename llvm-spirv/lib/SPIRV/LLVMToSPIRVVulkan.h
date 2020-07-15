@@ -97,6 +97,8 @@ protected:
   bool InParameterStructure = false;
 
   SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
+
+  std::vector<Value *> runtimeArrayArguments;
 };
 
 } // Namespace SPIRV

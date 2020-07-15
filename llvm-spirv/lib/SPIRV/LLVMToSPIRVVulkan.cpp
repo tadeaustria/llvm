@@ -85,7 +85,8 @@ using namespace OCLUtil;
 
 namespace SPIRV {
 
-LLVMToSPIRVVulkan::LLVMToSPIRVVulkan(SPIRVModule *SMod) : LLVMToSPIRV(SMod) {}
+LLVMToSPIRVVulkan::LLVMToSPIRVVulkan(SPIRVModule *SMod)
+    : LLVMToSPIRV(SMod), runtimeArrayArguments() {}
 
 void LLVMToSPIRVVulkan::transFunction(Function *I) {
   SPIRVFunction *BF = transFunctionDecl(I);
@@ -284,6 +285,18 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                                            SPIRVBasicBlock *BB,
                                                            bool CreateForward) {
 
+  auto containsRTArray = [&](Value *V) { 
+    auto TranslatedStructType = transType(V->getType())->getPointerElementType();
+    if (TranslatedStructType->isTypeStruct()) {
+      for (SPIRVWord i = 0; i < TranslatedStructType->getStructMemberCount();
+           i++) {
+        if (TranslatedStructType->getStructMemberType(i)->isTypeRuntimeArray())
+          return true;
+      }
+    }
+    return false;
+  };
+
   SPIRVValue *Alternative = nullptr;
   if (isSkippable(V, BB, &Alternative)) {
     if (Alternative)
@@ -294,13 +307,17 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
 
   if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
     auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(V, BB);
-    auto Pos = GV->getName().find("rg_");
+    const char *ArgName = "_arg_";
+    auto Pos = GV->getName().find(ArgName);
     if (Pos != std::string::npos) {
-      auto IDString = GV->getName()[Pos + 3];
-      auto ID = std::stoi(&IDString);
+      auto IDcString = GV->getName().data() + Pos + strlen(ArgName);
+      auto ID = std::atoi(IDcString);
       TransValue->addDecorate(DecorationDescriptorSet, 0);
       TransValue->addDecorate(DecorationBinding, ID);
     } 
+    if (containsRTArray(V)) {
+      runtimeArrayArguments.push_back(V);
+    }
     return TransValue;
   }
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
@@ -343,8 +360,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       originGEP = prevprevGEP;
     }*/
 
-    if (originGEP->getName().find("_arg_0") !=
-        std::string::npos) {
+    /*if (originGEP->getName().find("_arg_0") !=
+        std::string::npos) {*/
+    if (std::find(runtimeArrayArguments.begin(), runtimeArrayArguments.end(),
+                  originGEP) != runtimeArrayArguments.end()) {
       std::vector<SPIRVValue *> MyIndices;
       // printf("Found Arg as Origin %llu\n", OtherIndizes.size());
       for (auto OrgIndex = OrigIndices.begin() + 1; OrgIndex != OrigIndices.end(); OrgIndex++) {
