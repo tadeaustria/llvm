@@ -6,6 +6,10 @@ set(LLVM_LINK_COMPONENTS
 
 if (MSVC)
   set_source_files_properties(SemaSYCL.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(SemaTemplate.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(SemaTemplateDeduction.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(SemaOpenMP.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(SemaDeclCXX.cpp PROPERTIES COMPILE_FLAGS /bigobj)
 endif()
 
 clang_tablegen(OpenCLBuiltins.inc -gen-clang-opencl-builtins

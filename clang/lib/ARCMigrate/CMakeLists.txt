@@ -6,6 +6,8 @@ set(LLVM_LINK_COMPONENTS
 # file, and Transforms.cpp needs more than that.
 if (MSVC)
   set_source_files_properties(Transforms.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(ObjCMT.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+  set_source_files_properties(TransAutoreleasePool.cpp PROPERTIES COMPILE_FLAGS /bigobj)
 endif()
 
 add_clang_library(clangARCMigrate
