@@ -202,7 +202,8 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     assert(ST->isSized());
 
     SPIRVTypeStruct *Ret;
-    if (ST->getStructName().find("_arg_") != std::string::npos) {
+    if ( ST->getStructName().find("union") != std::string::npos ||
+         ST->getStructName().find("_arg_") != std::string::npos ) {
       InParameterStructure = true;
        Ret =
           reinterpret_cast<SPIRVTypeStruct*>(LLVMToSPIRV::transType(T));
@@ -399,7 +400,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     if (TypePointer->getElementType()->isStructTy()) {
 
       auto Type = GEP->getType();
-      if (TypePointer->getElementType()->getStructName().find("_arg_") !=
+      if (TypePointer->getElementType()->getStructName().find("union") !=
           std::string::npos) {
         auto accessedType =
             TypePointer->getElementType()->getStructElementType(0);
