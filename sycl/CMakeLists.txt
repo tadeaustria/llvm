@@ -371,9 +371,12 @@ if(SYCL_BUILD_PI_CUDA)
   list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS libspirv-builtins pi_cuda)
 endif()
 
+# Vulkan needs opt for kernel optimization
 if(SYCL_BUILD_PI_VULKAN)
-  add_dependencies(sycl-toolchain pi_vulkan)
-  list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS pi_vulkan)
+  add_dependencies(sycl-toolchain 
+      pi_vulkan
+      opt)
+  list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS pi_vulkan opt)
 endif()
 
 # Use it as fake dependency in order to force another command(s) to execute.
