@@ -1281,7 +1281,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                         vk::BufferCreateFlags(), size,
                         vk::BufferUsageFlagBits::eStorageBuffer,
                         vk::SharingMode::eExclusive)),
-                    context);
+                    context, flags & PI_MEM_FLAGS_HOST_PTR_USE ? host_ptr : nullptr);
     //}
     *ret_mem = NewMem;
     // FIXME: Not sure how or even if 'host pointer use' works in vulkan
@@ -2035,9 +2035,16 @@ pi_result VLK(piEnqueueMemBufferMap)(
 
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
   // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
-  vk::Result Error = memobj->Context_->Device.mapMemory(
-      memobj->Memory, 0, size, vk::MemoryMapFlags(), ret_map);
-  return mapVulkanErrToCLErr(Error);
+  if (memobj->HostPtr) {
+    *ret_map = memobj->HostPtr;
+    return VLK(piEnqueueMemBufferRead)(
+        command_queue, memobj, blocking_map, offset, size, memobj->HostPtr,
+        num_events_in_wait_list, event_wait_list, event);
+  } else {
+    vk::Result Error = memobj->Context_->Device.mapMemory(
+        memobj->Memory, offset, size, vk::MemoryMapFlags(), ret_map);
+    return mapVulkanErrToCLErr(Error);
+  }
 }
 
 pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
@@ -2047,7 +2054,8 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
-  memobj->Context_->Device.unmapMemory(memobj->Memory);
+  if (!memobj->HostPtr)
+    memobj->Context_->Device.unmapMemory(memobj->Memory);
   *event = new _pi_empty_event();
   return PI_SUCCESS;
 }

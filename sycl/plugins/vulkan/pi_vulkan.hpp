@@ -109,9 +109,10 @@ struct _pi_mem : public _ref_counter {
   vk::DeviceMemory Memory;
   vk::Buffer Buffer;
   pi_context Context_;
-  _pi_mem(uint32_t MemoryTypeIndex, vk::Buffer Buffer_,
-          pi_context Context)
-      : _ref_counter{1}, Memory(), Buffer(Buffer_), Context_(Context) {
+  void *HostPtr;
+  _pi_mem(uint32_t MemoryTypeIndex, vk::Buffer Buffer_, pi_context Context,
+          void *HostPtr_)
+      : _ref_counter{1}, Memory(), Buffer(Buffer_), Context_(Context), HostPtr(HostPtr_) {
     if (Context_) {
       VLK(piContextRetain)(Context_);
       // Allocated Memory must be at least the required size for Buffer
