@@ -81,6 +81,12 @@ struct _pi_queue : public _ref_counter {
   vk::Queue Queue;
   vk::UniqueCommandPool CommandPool;
   vk::CommandBuffer CmdBuffer;
+  vk::UniqueDescriptorSetLayout DescriptorSetLayout;
+  vk::UniqueDescriptorPool DescriptorPool;
+  vk::UniquePipelineLayout PipelineLayout;
+  vk::UniquePipeline Pipeline;
+  vk::UniqueDescriptorSet DescriptorSet;
+
   pi_context Context_;
   pi_queue_properties Properties_;
 
@@ -103,11 +109,20 @@ struct _pi_mem : public _ref_counter {
   vk::DeviceMemory Memory;
   vk::Buffer Buffer;
   pi_context Context_;
-  _pi_mem(vk::DeviceMemory Memory_, vk::Buffer Buffer_, pi_context Context)
-      : _ref_counter{1}, Memory(Memory_), Buffer(Buffer_), Context_(Context) {
-    if (Context_)
+  _pi_mem(uint32_t MemoryTypeIndex, vk::Buffer Buffer_,
+          pi_context Context)
+      : _ref_counter{1}, Memory(), Buffer(Buffer_), Context_(Context) {
+    if (Context_) {
       VLK(piContextRetain)(Context_);
-    Context_->Device.bindBufferMemory(Buffer, Memory, 0);
+      // Allocated Memory must be at least the required size for Buffer
+      // This is either the requested memory size or at least the
+      // required minimal size of the hardware
+      auto BufferRequirements =
+          Context_->Device.getBufferMemoryRequirements(Buffer);
+      Memory = Context->Device.allocateMemory(
+          vk::MemoryAllocateInfo(BufferRequirements.size, MemoryTypeIndex));
+      Context_->Device.bindBufferMemory(Buffer, Memory, 0);
+    }
   }
 
   ~_pi_mem() {
@@ -165,6 +180,8 @@ struct _pi_kernel : public _ref_counter {
 
 struct _pi_event : public _ref_counter {
   _pi_event() : _ref_counter{1} {}
+  virtual ~_pi_event(){};
+
   virtual void wait() = 0;
 };
 

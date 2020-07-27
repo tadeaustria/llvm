@@ -1276,8 +1276,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     //} else {
 
     auto NewMem =
-        new _pi_mem(context->Device.allocateMemory(
-                        vk::MemoryAllocateInfo(size, MemoryTypeIndex)),
+        new _pi_mem(MemoryTypeIndex,
                     context->Device.createBuffer(vk::BufferCreateInfo(
                         vk::BufferCreateFlags(), size,
                         vk::BufferUsageFlagBits::eStorageBuffer,
@@ -1787,7 +1786,7 @@ pi_result VLK(piEventRetain)(pi_event event) {
 
 pi_result VLK(piEventRelease)(pi_event event) {
   if (--event->RefCounter_ < 1)
-    free(event);
+    delete event;
   return PI_SUCCESS;
 }
 
@@ -1816,7 +1815,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
   auto &Device = Queue->Context_->Device;
 
   try {
-    vk::UniqueDescriptorSetLayout DescriptorSetLayout =
+    Queue->DescriptorSetLayout =
         Device.createDescriptorSetLayoutUnique(
             vk::DescriptorSetLayoutCreateInfo(
                 vk::DescriptorSetLayoutCreateFlags(),
@@ -1825,9 +1824,9 @@ pi_result VLK(piEnqueueKernelLaunch)(
                 kernel->DescriptorSetLayoutBinding.data()));
 
     // create a PipelineLayout using that DescriptorSetLayout
-    vk::UniquePipelineLayout PipelineLayout =
-        Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(
-            vk::PipelineLayoutCreateFlags(), 1, &DescriptorSetLayout.get()));
+    Queue->PipelineLayout =
+        Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
+                                     &Queue->DescriptorSetLayout.get()));
 
     vk::ComputePipelineCreateInfo computePipelineInfo(
         vk::PipelineCreateFlags(),
@@ -1835,23 +1834,23 @@ pi_result VLK(piEnqueueKernelLaunch)(
                                           vk::ShaderStageFlagBits::eCompute,
                                           kernel->Program_->Module,
                                           kernel->Name),
-        PipelineLayout.get());
+        Queue->PipelineLayout.get());
 
-    auto Pipeline =
-        Device.createComputePipelineUnique(nullptr, computePipelineInfo);
+    Queue->Pipeline =
+        Device.createComputePipelineUnique(nullptr, computePipelineInfo).value;
 
     auto DescriptorPoolSize = vk::DescriptorPoolSize(
         vk::DescriptorType::eStorageBuffer, kernel->Arguments.size());
-    auto DescriptorPool =
+    Queue->DescriptorPool =
         Device.createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo(
             vk::DescriptorPoolCreateFlags(
                 vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet),
             1, 1, &DescriptorPoolSize));
 
-    auto DescriptorSet = std::move(
+    Queue->DescriptorSet = std::move(
         Device
             .allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo(
-                DescriptorPool.get(), 1, &DescriptorSetLayout.get()))
+                Queue->DescriptorPool.get(), 1, &Queue->DescriptorSetLayout.get()))
             .front());
 
     std::vector<vk::WriteDescriptorSet> WriteSets{kernel->Arguments.size()};
@@ -1861,7 +1860,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
     for (size_t i = 0; i < kernel->Arguments.size(); i++) {
       DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
           kernel->Arguments[i]->Buffer, 0, VK_WHOLE_SIZE);
-      WriteSets[i] = vk::WriteDescriptorSet{DescriptorSet.get(),
+      WriteSets[i] = vk::WriteDescriptorSet{Queue->DescriptorSet.get(),
                                             static_cast<uint32_t>(i),
                                             0,
                                             1,
@@ -1879,11 +1878,11 @@ pi_result VLK(piEnqueueKernelLaunch)(
         vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
     CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute,
-                               Pipeline.value.get());
+                               Queue->Pipeline.get());
 
     CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                                     PipelineLayout.get(), 0, 1,
-                                     &DescriptorSet.get(), 0, nullptr);
+                                     Queue->PipelineLayout.get(), 0, 1,
+                                     &Queue->DescriptorSet.get(), 0, nullptr);
 
     CommandBuffer.dispatch(work_dim >= 1 ? global_work_size[0] : 1,
                            work_dim >= 2 ? global_work_size[1] : 1,
