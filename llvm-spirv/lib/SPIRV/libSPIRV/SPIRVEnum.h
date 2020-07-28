@@ -332,7 +332,7 @@ template <> inline void SPIRVMap<ImageOperandsMask, SPIRVCapVec>::init() {
 
 template <> inline void SPIRVMap<Decoration, SPIRVCapVec>::init() {
   ADD_VEC_INIT(DecorationRelaxedPrecision, {CapabilityShader});
-  ADD_VEC_INIT(DecorationSpecId, {CapabilityKernel});
+  //ADD_VEC_INIT(DecorationSpecId, {CapabilityKernel, CapabilityShader}); // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Decoration
   ADD_VEC_INIT(DecorationBlock, {CapabilityShader});
   ADD_VEC_INIT(DecorationBufferBlock, {CapabilityShader});
   ADD_VEC_INIT(DecorationRowMajor, {CapabilityMatrix});

@@ -269,6 +269,8 @@ public:
   virtual SPIRVValue *addConstant(SPIRVType *, uint64_t) = 0;
   virtual SPIRVValue *addConstant(SPIRVType *, llvm::APInt) = 0;
   virtual SPIRVValue *addSpecConstant(SPIRVType *, uint64_t) = 0;
+  virtual SPIRVValue *
+  addSpecCompositeConstant(SPIRVType *, const std::vector<SPIRVValue *> &) = 0;
   virtual SPIRVValue *addDoubleConstant(SPIRVTypeFloat *, double) = 0;
   virtual SPIRVValue *addFloatConstant(SPIRVTypeFloat *, float) = 0;
   virtual SPIRVValue *addIntegerConstant(SPIRVTypeInt *, uint64_t) = 0;

@@ -277,6 +277,9 @@ public:
   SPIRVValue *addConstant(SPIRVType *, uint64_t) override;
   SPIRVValue *addConstant(SPIRVType *, llvm::APInt) override;
   SPIRVValue *addSpecConstant(SPIRVType *, uint64_t) override;
+  SPIRVValue *
+  addSpecCompositeConstant(SPIRVType *,
+                           const std::vector<SPIRVValue *> &) override;
   SPIRVValue *addDoubleConstant(SPIRVTypeFloat *, double) override;
   SPIRVValue *addFloatConstant(SPIRVTypeFloat *, float) override;
   SPIRVValue *addIntegerConstant(SPIRVTypeInt *, uint64_t) override;
@@ -1175,6 +1178,11 @@ SPIRVValue *SPIRVModuleImpl::addSpecConstant(SPIRVType *Ty, uint64_t V) {
       return add(new SPIRVSpecConstantFalse(this, Ty, getId()));
   }
   return add(new SPIRVSpecConstant(this, Ty, getId(), V));
+}
+
+SPIRVValue *SPIRVModuleImpl::addSpecCompositeConstant(
+    SPIRVType *Ty, const std::vector<SPIRVValue *> &Elements) {
+  return addConstant(new SPIRVSpecConstantComposite(this, Ty, getId(), Elements));
 }
 
 // Instruction creation functions
