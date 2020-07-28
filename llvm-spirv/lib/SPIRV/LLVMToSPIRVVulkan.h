@@ -99,6 +99,7 @@ protected:
   SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
 
   std::vector<Value *> runtimeArrayArguments;
+  SPIRVType *workgroupSizeType = nullptr;
 };
 
 } // Namespace SPIRV

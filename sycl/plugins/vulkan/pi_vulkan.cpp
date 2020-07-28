@@ -1828,12 +1828,41 @@ pi_result VLK(piEnqueueKernelLaunch)(
         Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
                                      &Queue->DescriptorSetLayout.get()));
 
+    std::vector<uint32_t> Values;
+    std::vector<vk::SpecializationMapEntry> Entries;
+    if (local_work_size) {
+      for (int i = 0; i < work_dim; i++) {
+        Values.push_back(local_work_size[i]);
+      }
+    }
+    else {
+      switch (work_dim) 
+      {
+      case 2:
+        Values = {16u, 16u, 1u};
+        break;
+      case 3:
+        Values = {8u, 8u, 8u};
+        break;
+      default:
+        Values = {512u, 1u, 1u};
+        break;
+      }
+    }
+    for (int i = 0; i < Values.size(); i++) 
+    {
+      Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
+    }
+
+    vk::SpecializationInfo SpecializationInfo(static_cast<uint32_t>(Entries.size()), Entries.data(),
+                                              Values.size()*sizeof(uint32_t), Values.data());
     vk::ComputePipelineCreateInfo computePipelineInfo(
         vk::PipelineCreateFlags(),
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
                                           vk::ShaderStageFlagBits::eCompute,
                                           kernel->Program_->Module,
-                                          kernel->Name),
+                                          kernel->Name,
+                                          &SpecializationInfo),
         Queue->PipelineLayout.get());
 
     Queue->Pipeline =

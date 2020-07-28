@@ -136,8 +136,19 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   if (oclIsKernel(F)) {
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
     // FIXME: Make execution mode variable
-    BF->addExecutionMode(BM->add(new SPIRVExecutionMode(
-        BF, ExecutionMode::ExecutionModeLocalSize, 1, 1, 1)));
+    /*BF->addExecutionMode(BM->add(new SPIRVExecutionMode(
+        BF, ExecutionMode::ExecutionModeLocalSize, 1, 1, 1)));*/
+    std::vector<SPIRVValue *> LocalSizeElements{3};
+    auto UIntType = BM->addIntegerType(32);
+    for (size_t i = 0; i < 3; i++) {
+      LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+      LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+    }
+    // auto VecUInt3 = BM->addVectorType(UIntType, 3);
+    auto LocalSize =
+        BM->addSpecCompositeConstant(workgroupSizeType, LocalSizeElements);
+    LocalSize->addDecorate(
+        new SPIRVDecorate(DecorationBuiltIn, LocalSize, BuiltInWorkgroupSize));
   }
   // Vulkan no linkage decorations
   // else if (F->getLinkage() != GlobalValue::InternalLinkage)
@@ -255,6 +266,12 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     NewArr->addDecorate(DecorationArrayStride, 
           M->getDataLayout().getTypeStoreSize(Ar->getArrayElementType()).getFixedSize());
     return NewArr;
+  } else if (auto *VecTy = dyn_cast<VectorType>(T)) {
+    // Store special Vec3 UInt Type for Workgroup Constant
+    if (VecTy->getNumElements() == 3 &&
+        VecTy->getElementType()->isIntegerTy()) {
+      return workgroupSizeType = LLVMToSPIRV::transType(T);
+    }
   }
 
   return LLVMToSPIRV::transType(T);
@@ -401,7 +418,9 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
 
       auto Type = GEP->getType();
       if (TypePointer->getElementType()->getStructName().find("union") !=
-          std::string::npos) {
+              std::string::npos ||
+          TypePointer->getElementType()->getStructName().find("arg") !=
+              std::string::npos) {
         auto accessedType =
             TypePointer->getElementType()->getStructElementType(0);
         if (accessedType->isPointerTy()){ //Access to RuntimeArray?
