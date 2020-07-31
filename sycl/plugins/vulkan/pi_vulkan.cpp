@@ -15,6 +15,7 @@
 /// \ingroup sycl_pi_vulkan
 
 #include "pi_vulkan.hpp"
+#include "renderdoc_app.h"
 #include <CL/sycl/detail/pi.hpp>
 //#include <CL/sycl/id.hpp>
 //#include <CL/sycl/range.hpp>
@@ -26,6 +27,12 @@
 #include <string>
 #include <vector>
 
+#ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#endif
+
 #define CHECK_ERR_SET_NULL_RET(err, ptr, reterr)                               \
   if (err != CL_SUCCESS) {                                                     \
     if (ptr != nullptr)                                                        \
@@ -36,6 +43,8 @@
 static_assert(VK_HEADER_VERSION >= 141, "Header Version too low");
 
 const char SupportedVersion[] = _PI_H_VERSION_STRING;
+
+RENDERDOC_API_1_1_2 *rdoc_api = NULL;
 
 // Want all the needed casts be explicit, do not define conversion operators.
 template <class To, class From> To cast(From value) {
@@ -285,10 +294,11 @@ __SYCL_INLINE_NAMESPACE(cl) {
   // TODO: Probably change that to throw a catchable exception,
   //       but for now it is useful to see every failure.
   //
-  [[noreturn]] void die(const char *Message) {
+  [[noreturn]] __SYCL_EXPORT void die(const char *Message) {
     std::cerr << "pi_die: " << Message << std::endl;
     std::terminate();
   }
+
 
   // void assertion(bool Condition, const char *Message) {
   //  if (!Condition)
@@ -296,7 +306,15 @@ __SYCL_INLINE_NAMESPACE(cl) {
   //}
 
   } // namespace pi
+
+  __SYCL_EXPORT const char *stringifyErrorCode(cl_int error) {
+    return "Vulkan Error Code (not implemented)";
+  }
+
   } // namespace detail
+
+  const char *exception::what() const noexcept { return MMsg.c_str(); }
+
   } // namespace sycl
 } // __SYCL_INLINE_NAMESPACE(cl)
 
@@ -382,10 +400,31 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
     std::call_once(
         InitFlag,
         [](pi_result &err) {
-          /*               if (cuInit(0) != VLK(SUCCESS) {
-                           NumPlatforms = 0;
-                           return;
-                         }*/
+    /*               if (cuInit(0) != VLK(SUCCESS) {
+                     NumPlatforms = 0;
+                     return;
+                   }*/
+#ifdef WIN32
+          // At init, on windows
+          if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
+            pRENDERDOC_GetAPI RENDERDOC_GetAPI =
+                (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
+            int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_1_2,
+                                       (void **)&rdoc_api);
+            assert(ret == 1);
+          }
+#else
+          // At init, on linux/android.
+          // For android replace librenderdoc.so with
+          // libVkLayer_GLES_RenderDoc.so
+          if (void *mod = dlopen("librenderdoc.so", RTLD_NOW | RTLD_NOLOAD)) {
+            pRENDERDOC_GetAPI RENDERDOC_GetAPI =
+                (pRENDERDOC_GetAPI)dlsym(mod, "RENDERDOC_GetAPI");
+            int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_1_2,
+                                       (void **)&rdoc_api);
+            assert(ret == 1);
+          }
+#endif
 
           // initialize the vk::ApplicationInfo structure
           vk::ApplicationInfo applicationInfo("SYCL LLVM", 1, "pi_vulkan.cpp",
@@ -1079,7 +1118,7 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
           vk::PhysicalDeviceFeatures2(),
           vk::PhysicalDeviceShaderFloat16Int8Features()};
   CreateDeviceInfo.get<vk::PhysicalDeviceFeatures2>()
-      .features.setShaderInt64(true);
+    .features.setShaderInt64(true);
   CreateDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
       .setShaderInt8(true);
 
@@ -1278,10 +1317,10 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     auto NewMem =
         new _pi_mem(MemoryTypeIndex,
                     context->Device.createBuffer(vk::BufferCreateInfo(
-                        vk::BufferCreateFlags(), size,
-                        vk::BufferUsageFlagBits::eStorageBuffer,
-                        vk::SharingMode::eExclusive)),
-                    context, flags & PI_MEM_FLAGS_HOST_PTR_USE ? host_ptr : nullptr);
+                      vk::BufferCreateFlags(), size,
+                                 vk::BufferUsageFlagBits::eStorageBuffer,
+                                 vk::SharingMode::eExclusive)),
+        context, flags & PI_MEM_FLAGS_HOST_PTR_USE ? host_ptr : nullptr);
     //}
     *ret_mem = NewMem;
     // FIXME: Not sure how or even if 'host pointer use' works in vulkan
@@ -1814,30 +1853,36 @@ pi_result VLK(piEnqueueKernelLaunch)(
 
   auto &Device = Queue->Context_->Device;
 
+  // To start a frame capture, call StartFrameCapture.
+  // You can specify NULL, NULL for the device to capture on if you
+  // have only one device and either no windows at all or only one
+  // window, and it will capture from that device. See the
+  // documentation below for a longer explanation
+  if (rdoc_api)
+    rdoc_api->StartFrameCapture(NULL, NULL);
+
   try {
     Queue->DescriptorSetLayout =
-        Device.createDescriptorSetLayoutUnique(
-            vk::DescriptorSetLayoutCreateInfo(
-                vk::DescriptorSetLayoutCreateFlags(),
-                static_cast<uint32_t>(
-                    kernel->DescriptorSetLayoutBinding.size()),
-                kernel->DescriptorSetLayoutBinding.data()));
+      Device.createDescriptorSetLayoutUnique(
+        vk::DescriptorSetLayoutCreateInfo(
+            vk::DescriptorSetLayoutCreateFlags(),
+            static_cast<uint32_t>(
+                kernel->DescriptorSetLayoutBinding.size()),
+            kernel->DescriptorSetLayoutBinding.data()));
 
     // create a PipelineLayout using that DescriptorSetLayout
     Queue->PipelineLayout =
-        Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
+      Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
                                      &Queue->DescriptorSetLayout.get()));
 
     std::vector<uint32_t> Values;
     std::vector<vk::SpecializationMapEntry> Entries;
     if (local_work_size) {
-      for (int i = 0; i < work_dim; i++) {
+      for (pi_uint32 i = 0; i < work_dim; i++) {
         Values.push_back(local_work_size[i]);
       }
-    }
-    else {
-      switch (work_dim) 
-      {
+    } else {
+      switch (work_dim) {
       case 2:
         Values = {16u, 16u, 1u};
         break;
@@ -1849,7 +1894,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
         break;
       }
     }
-    for (int i = 0; i < Values.size(); i++) 
+    for (int i = 0; i < Values.size(); i++)
     {
       Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
     }
@@ -1913,9 +1958,24 @@ pi_result VLK(piEnqueueKernelLaunch)(
                                      Queue->PipelineLayout.get(), 0, 1,
                                      &Queue->DescriptorSet.get(), 0, nullptr);
 
-    CommandBuffer.dispatch(work_dim >= 1 ? global_work_size[0] : 1,
-                           work_dim >= 2 ? global_work_size[1] : 1,
-                           work_dim >= 3 ? global_work_size[2] : 1);
+    assert(global_work_size[0] % Values[0] == 0);
+    assert(global_work_offset[0] % Values[0] == 0);
+    if (work_dim >= 2) {
+      assert(global_work_size[1] % Values[1] == 0);
+      assert(global_work_offset[1] % Values[1] == 0);
+    }
+    if (work_dim >= 3) {
+      assert(global_work_size[2] % Values[2] == 0);
+      assert(global_work_offset[2] % Values[2] == 0);
+    }
+
+    CommandBuffer.dispatchBase(
+        work_dim >= 1 ? global_work_offset[0] / Values[0] : 0,
+        work_dim >= 2 ? global_work_offset[1] / Values[1] : 0,
+        work_dim >= 3 ? global_work_offset[2] / Values[2] : 0,
+        work_dim >= 1 ? global_work_size[0] / Values[0] : 1,
+        work_dim >= 2 ? global_work_size[1] / Values[1] : 1,
+        work_dim >= 3 ? global_work_size[2] / Values[2] : 1);
 
     CommandBuffer.end();
 
@@ -1932,6 +1992,10 @@ pi_result VLK(piEnqueueKernelLaunch)(
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
+
+  // stop the capture
+  if (rdoc_api)
+    rdoc_api->EndFrameCapture(NULL, NULL);
 
   return PI_SUCCESS;
 }
@@ -2061,7 +2125,7 @@ pi_result VLK(piEnqueueMemBufferMap)(
     cl_map_flags map_flags, // TODO: untie from OpenCL
     size_t offset, size_t size, pi_uint32 num_events_in_wait_list,
     const pi_event *event_wait_list, pi_event *event, void **ret_map) {
-
+  
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
   // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
   if (memobj->HostPtr) {
@@ -2129,7 +2193,7 @@ NOT_IMPL(pi_result VLK(piextUSMGetMemAllocInfo),
           size_t param_value_size, void *param_value,
           size_t *param_value_size_ret))
 
-pi_result piPluginInit(pi_plugin *PluginInit) {
+__SYCL_EXPORT pi_result piPluginInit(pi_plugin *PluginInit) {
   int CompareVersions = strcmp(PluginInit->PiVersion, SupportedVersion);
   if (CompareVersions < 0) {
     // PI interface supports lower version of PI.

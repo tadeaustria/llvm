@@ -34,6 +34,12 @@ target_include_directories(pi_vulkan
     ${Vulkan_INCLUDE_DIRS}
 )
 
+if (MSVC)
+  # by defining __SYCL_BUILD_SYCL_DLL, we can use __declspec(dllexport)
+  # which are individually tagged for all pi* symbols in pi.h
+  target_compile_definitions(pi_vulkan PRIVATE __SYCL_BUILD_SYCL_DLL)
+endif()
+
 target_link_libraries(pi_vulkan 
 	PRIVATE Vulkan::Vulkan
     PRIVATE OpenCL::Headers
