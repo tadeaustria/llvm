@@ -126,6 +126,14 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     return nullptr;
   }
 
+  // Using analysis pass
+  FunctionAnalysisManager FAM;
+  auto DomAnalysis = PostDominatorTreeAnalysis();
+  FAM.registerPass([&] { return DomAnalysis; });
+  dominatorTree = DomAnalysis.run(*F, FAM);
+
+  //dominatorTree.print(llvm::outs());
+
   SPIRVTypeFunction *BFT = static_cast<SPIRVTypeFunction *>(
       transType(getAnalysis<OCLTypeToSPIRV>().getAdaptedType(F)));
   SPIRVFunction *BF =
@@ -216,7 +224,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     if ( ST->getStructName().find("union") != std::string::npos ||
          ST->getStructName().find("_arg_") != std::string::npos ) {
       InParameterStructure = true;
-       Ret =
+      Ret =
           reinterpret_cast<SPIRVTypeStruct*>(LLVMToSPIRV::transType(T));
       InParameterStructure = false;
       Ret->addDecorate(DecorationBlock);
@@ -243,7 +251,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     */
   } else if (auto Pt = dyn_cast<PointerType>(T)) {
     if (InParameterStructure) {
-    //if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
+      //if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
       auto subtype = Pt->getElementType();
       /*auto subsubtype = subtype->getElementType();
       auto addrspace = SPIRSPIRVAddrSpaceMap::map(
@@ -252,7 +260,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
       return mapType(
           T, BM->addPointerType(
                  addrspace, BM->addRuntimeArrayType(transType(subsubtype))));*/
-      
+
       auto RtArray = BM->addRuntimeArrayType(transType(subtype));
       RtArray->addDecorate(
           DecorationArrayStride,
@@ -263,8 +271,8 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     }
   } else if (auto Ar = dyn_cast<ArrayType>(T)) {
     auto NewArr = LLVMToSPIRV::transType(T);
-    NewArr->addDecorate(DecorationArrayStride, 
-          M->getDataLayout().getTypeStoreSize(Ar->getArrayElementType()).getFixedSize());
+    NewArr->addDecorate(DecorationArrayStride,
+                        M->getDataLayout().getTypeStoreSize(Ar->getArrayElementType()).getFixedSize());
     return NewArr;
   } else if (auto *VecTy = dyn_cast<VectorType>(T)) {
     // Store special Vec3 UInt Type for Workgroup Constant
@@ -278,7 +286,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
 }
 
 Value *backtrace(Value *V, std::vector<Value *> &indizes,
-                 std::vector<Value *> &origindizes) { 
+                 std::vector<Value *> &origindizes) {
   if (auto GEP = dyn_cast<GetElementPtrInst>(V)) {
     if (GEP->getNumOperands() < 3) {
       indizes.push_back(GEP->getOperand(1));
@@ -303,7 +311,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                                            SPIRVBasicBlock *BB,
                                                            bool CreateForward) {
 
-  auto containsRTArray = [&](Value *V) { 
+  auto containsRTArray = [&](Value *V) {
     auto TranslatedStructType = transType(V->getType())->getPointerElementType();
     if (TranslatedStructType->isTypeStruct()) {
       for (SPIRVWord i = 0; i < TranslatedStructType->getStructMemberCount();
@@ -332,7 +340,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       auto ID = std::atoi(IDcString);
       TransValue->addDecorate(DecorationDescriptorSet, 0);
       TransValue->addDecorate(DecorationBinding, ID);
-    } 
+    }
     if (containsRTArray(V)) {
       runtimeArrayArguments.push_back(V);
     }
@@ -424,18 +432,18 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         auto accessedType =
             TypePointer->getElementType()->getStructElementType(0);
         if (accessedType->isPointerTy()){ //Access to RuntimeArray?
-        //// Check if the the last index (the runtime array) is accessed
-        //SPIRVValue *LastIndex = Indices[Indices.size() - 1];
-        //if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
-        //  if (constant->getZExtIntValue() == 3) {
-            // If yes, add another index to access first element within the 
-            // runtime array to get a element pointer
-            Indices.push_back(
-                BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
-            // This additional index also changes the type, which is then
-            // one type step down the pointer chain
-            Type = Type->getPointerElementType();
-          }
+          //// Check if the the last index (the runtime array) is accessed
+          //SPIRVValue *LastIndex = Indices[Indices.size() - 1];
+          //if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
+          //  if (constant->getZExtIntValue() == 3) {
+          // If yes, add another index to access first element within the
+          // runtime array to get a element pointer
+          Indices.push_back(
+              BM->addConstant(transType(GEP->getOperand(1)->getType()), 0));
+          // This additional index also changes the type, which is then
+          // one type step down the pointer chain
+          Type = Type->getPointerElementType();
+        }
         //}
       }
       // Remove First Index due to difference in AccessChain and PtrAccessChain
@@ -468,6 +476,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
       }
     }
+    std::vector<SPIRVWord> MemoryAccess(1, 0);
+    return mapValue(
+        V, BM->addLoadInst(LLVMToSPIRV::transValue(LD->getPointerOperand(), BB),
+                           MemoryAccess, BB));
   }
 
   if (BranchInst *Branch = dyn_cast<BranchInst>(V)) {
@@ -483,7 +495,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     // it will not be converted into an structured CFG in SPIRV
     // This "fix" instead uses for for-loop increment block
     // by simple label name match. This then has the back edge
-    // and uses the same logic as original code 
+    // and uses the same logic as original code
     if (Branch->isUnconditional()) {
       // For "for" and "while" loops llvm.loop metadata is attached to
       // an unconditional branch instruction.
@@ -507,6 +519,33 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         }
       }
       return mapValue(V, BM->addBranchInst(SuccessorTrue, BB));
+    } else if (Branch->isConditional()) {
+
+      if (BB->getName().find(".body") != std::string::npos) {
+        SPIRVLabel *SuccessorFalse = static_cast<SPIRVLabel *>(
+            LLVMToSPIRV::transValue(Branch->getSuccessor(1), BB));
+        auto BranchTranslated =
+            LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
+        if (SuccessorFalse->getName().find(".body")) {
+          BM->addLoopMergeInst(SuccessorTrue->getId(),  // Merge Block
+                               SuccessorFalse->getId(), // Continue Target
+                               LoopControl, Parameters, BB);
+        } else {
+          BM->addLoopMergeInst(SuccessorFalse->getId(), // Merge Block
+                               SuccessorTrue->getId(),  // Continue Target
+                               LoopControl, Parameters, BB);
+        }
+        return BranchTranslated;
+      } else {
+        if (auto Dominator = dominatorTree.findNearestCommonDominator(
+                 Branch->getSuccessor(0), Branch->getSuccessor(1))) {
+          BM->addSelectionMergeInst(
+              LLVMToSPIRV::transValue(Dominator, BB)->getId(),
+              /*SelectionControl None*/ 0, BB);
+        } else {
+          assert(false && "No Common Dominator for Branch found");
+        }
+      }
     }
     // TODO: maybe same has to be done with the do; while
   }
@@ -661,19 +700,43 @@ SPIRVValue *LLVMToSPIRVVulkan::transIntrinsicInst(IntrinsicInst *II,
         Source1Type =
             Source->getType()->getPointerElementType()->getStructMemberType(0);
 
-      std::vector<SPIRVValue *> Indices;
-      Indices.push_back(BM->getLiteralAsConstant(0));
+      // Well we need to navigate into both copying operands and find
+      // at which depth they share the same type
+      std::vector<SPIRVValue *> IndicesSource;
+      IndicesSource.push_back(BM->getLiteralAsConstant(0));
+      std::vector<SPIRVValue *> IndicesTarget;
+      IndicesTarget.push_back(BM->getLiteralAsConstant(0));
 
-      if (Target1Type == Source->getType()->getPointerElementType()) {
+      while (Target1Type != Source->getType()->getPointerElementType() &&
+             Source1Type != Target->getType()->getPointerElementType() &&
+             Target1Type != Source1Type) {
+        if (Target1Type->isTypeStruct()) {
+          Target1Type = Target1Type->getStructMemberType(0);
+          IndicesTarget.push_back(BM->getLiteralAsConstant(0));
+        } else if (Source1Type->isTypeStruct()) {
+          Source1Type = Source1Type->getStructMemberType(0);
+          IndicesSource.push_back(BM->getLiteralAsConstant(0));
+        } else {
+          assert(false && "Can't find valid data types for copying");
+        }
+      }
+
+      // If we found a depth we need to generate the accesses to
+      // the depth respectivly for both operands and replace the
+      // operands them for the original copy operands
+      if (Target1Type == Source->getType()->getPointerElementType() ||
+          Target1Type == Source1Type) {
         Target = BM->addAccessChainInst(
             BM->addPointerType(Target->getType()->getPointerStorageClass(),
                                Target1Type),
-            Target, Indices, BB, true);
-      } else if (Source1Type == Target->getType()->getPointerElementType()) {
+            Target, IndicesTarget, BB, true);
+      }
+      if (Source1Type == Target->getType()->getPointerElementType() ||
+          Target1Type == Source1Type) {
         Source = BM->addAccessChainInst(
             BM->addPointerType(Source->getType()->getPointerStorageClass(),
                                Source1Type),
-            Source, Indices, BB, true);
+            Source, IndicesSource, BB, true);
       }
     }
 

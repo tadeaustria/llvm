@@ -52,6 +52,7 @@
 #include "SPIRVWriter.h"
 
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/IntrinsicInst.h"
 
 #include <memory>
@@ -67,6 +68,11 @@ public:
   LLVMToSPIRVVulkan(SPIRVModule *SMod = nullptr);
 
   virtual StringRef getPassName() const override { return "LLVMToSPIRVVulkan"; }
+
+  /*void getAnalysisUsage(AnalysisUsage &AU) const override {
+    LLVMToSPIRV::getAnalysisUsage(AU);
+    AU.addRequired<PostDominatorTreeWrapperPass>();
+  }*/
 
   SPIRVType *transType(Type *T) override;
 
@@ -100,6 +106,7 @@ protected:
 
   std::vector<Value *> runtimeArrayArguments;
   SPIRVType *workgroupSizeType = nullptr;
+  llvm::PostDominatorTree dominatorTree;
 };
 
 } // Namespace SPIRV
