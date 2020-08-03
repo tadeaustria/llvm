@@ -44,6 +44,11 @@ target_link_libraries(pi_vulkan
 	PRIVATE Vulkan::Vulkan
     PRIVATE OpenCL::Headers
     PRIVATE ${OpenCL_LIBRARIES})
+    
+# add dynamic library functionality for RenderDoc
+if(CMAKE_DL_LIBS)
+    target_link_libraries(pi_vulkan PRIVATE ${CMAKE_DL_LIBS})
+endif()
 
 add_common_options(pi_vulkan)
 

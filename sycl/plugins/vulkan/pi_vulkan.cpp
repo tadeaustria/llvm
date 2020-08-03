@@ -31,6 +31,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#else
+#include <dlfcn.h>
 #endif
 
 #define CHECK_ERR_SET_NULL_RET(err, ptr, reterr)                               \
@@ -253,7 +255,7 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
 }
 
 template <>
-pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
+[[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
     size_t param_value_size, void *param_value, size_t *param_value_size_ret,
     std::vector<vk::ExtensionProperties> *value) {
 
@@ -967,6 +969,8 @@ pi_result VLK(piDevicePartition)(
 /// \return PI_SUCCESS always since CUDA devices are always root devices.
 ///
 pi_result VLK(piDeviceRelease)(pi_device Device) {
+  // No Release of Physical Devices possible in Vulkan
+  // API. They are bound to the Instance
   delete Device;
   return PI_SUCCESS;
 }
@@ -1894,7 +1898,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
         break;
       }
     }
-    for (int i = 0; i < Values.size(); i++)
+    for (size_t i = 0; i < Values.size(); i++)
     {
       Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
     }
