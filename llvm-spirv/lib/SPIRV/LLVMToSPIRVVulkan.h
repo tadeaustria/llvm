@@ -104,9 +104,9 @@ protected:
 
   SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
 
-  std::vector<Value *> runtimeArrayArguments;
-  SPIRVType *workgroupSizeType = nullptr;
-  llvm::PostDominatorTree dominatorTree;
+  std::vector<Value *> RuntimeArrayArguments;
+  SPIRVType *WorkgroupSizeType = nullptr;
+  llvm::PostDominatorTree DominatorTree;
 };
 
 } // Namespace SPIRV

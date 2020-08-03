@@ -258,7 +258,6 @@ template <>
 [[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
     size_t param_value_size, void *param_value, size_t *param_value_size_ret,
     std::vector<vk::ExtensionProperties> *value) {
-
   size_t counter = 0;
   char *targetString = reinterpret_cast<char *>(param_value);
 
@@ -300,7 +299,6 @@ __SYCL_INLINE_NAMESPACE(cl) {
     std::cerr << "pi_die: " << Message << std::endl;
     std::terminate();
   }
-
 
   // void assertion(bool Condition, const char *Message) {
   //  if (!Condition)
@@ -434,14 +432,13 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
 
           // initialize the vk::InstanceCreateInfo
           std::vector<const char *> List = {
-                                            //"VK_LAYER_LUNARG_vktrace",
-                                            //"VK_LAYER_LUNARG_api_dump",
-                                            //"VK_LAYER_KHRONOS_validation"
+              //"VK_LAYER_LUNARG_vktrace",
+              //"VK_LAYER_LUNARG_api_dump",
+              //"VK_LAYER_KHRONOS_validation"
           };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
           Platform.Instance_ = vk::createInstance(instanceCreateInfo);
-
         },
         err);
 
@@ -1105,7 +1102,7 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
       vk::DeviceQueueCreateFlags(),
       static_cast<uint32_t>(ComputeQueueFamilyIndex), 1, &QueuePriority);
 
-  std::vector<const char *>EnabledExtensions = {"VK_KHR_variable_pointers"};
+  std::vector<const char *> EnabledExtensions = {"VK_KHR_variable_pointers"};
 
   pi_context Context = new _pi_context();
   Context->RefCounter_ = 1;
@@ -1121,12 +1118,13 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
                                EnabledExtensions.data()),
           vk::PhysicalDeviceFeatures2(),
           vk::PhysicalDeviceShaderFloat16Int8Features()};
-  CreateDeviceInfo.get<vk::PhysicalDeviceFeatures2>()
-    .features.setShaderInt64(true);
+  CreateDeviceInfo.get<vk::PhysicalDeviceFeatures2>().features.setShaderInt64(
+      true);
   CreateDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
       .setShaderInt8(true);
 
-  Context->Device = PhysicalDevice.createDevice(CreateDeviceInfo.get<vk::DeviceCreateInfo>());
+  Context->Device =
+      PhysicalDevice.createDevice(CreateDeviceInfo.get<vk::DeviceCreateInfo>());
 
   *retcontext = Context;
   return Errcode_ret;
@@ -1318,10 +1316,10 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     //  // cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
     //} else {
 
-    auto NewMem =
-        new _pi_mem(MemoryTypeIndex,
-                    context->Device.createBuffer(vk::BufferCreateInfo(
-                      vk::BufferCreateFlags(), size,
+    auto NewMem = new _pi_mem(
+        MemoryTypeIndex,
+        context->Device.createBuffer(
+            vk::BufferCreateInfo(vk::BufferCreateFlags(), size,
                                  vk::BufferUsageFlagBits::eStorageBuffer,
                                  vk::SharingMode::eExclusive)),
         context, flags & PI_MEM_FLAGS_HOST_PTR_USE ? host_ptr : nullptr);
@@ -1331,8 +1329,8 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     // for now copy data
     if (flags & PI_MEM_FLAGS_HOST_PTR_USE ||
         flags & PI_MEM_FLAGS_HOST_PTR_COPY) {
-      auto deviceData = context->Device.mapMemory(NewMem->Memory, 0, size);
-      memcpy(deviceData, host_ptr, size);
+      auto DeviceData = context->Device.mapMemory(NewMem->Memory, 0, size);
+      memcpy(DeviceData, host_ptr, size);
       context->Device.unmapMemory(NewMem->Memory);
     }
   } catch (vk::SystemError const &Err) {
@@ -1866,17 +1864,15 @@ pi_result VLK(piEnqueueKernelLaunch)(
     rdoc_api->StartFrameCapture(NULL, NULL);
 
   try {
-    Queue->DescriptorSetLayout =
-      Device.createDescriptorSetLayoutUnique(
+    Queue->DescriptorSetLayout = Device.createDescriptorSetLayoutUnique(
         vk::DescriptorSetLayoutCreateInfo(
             vk::DescriptorSetLayoutCreateFlags(),
-            static_cast<uint32_t>(
-                kernel->DescriptorSetLayoutBinding.size()),
+            static_cast<uint32_t>(kernel->DescriptorSetLayoutBinding.size()),
             kernel->DescriptorSetLayoutBinding.data()));
 
     // create a PipelineLayout using that DescriptorSetLayout
-    Queue->PipelineLayout =
-      Device.createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
+    Queue->PipelineLayout = Device.createPipelineLayoutUnique(
+        vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
                                      &Queue->DescriptorSetLayout.get()));
 
     std::vector<uint32_t> Values;
@@ -1898,20 +1894,19 @@ pi_result VLK(piEnqueueKernelLaunch)(
         break;
       }
     }
-    for (size_t i = 0; i < Values.size(); i++)
-    {
+    for (size_t i = 0; i < Values.size(); i++) {
       Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
     }
 
-    vk::SpecializationInfo SpecializationInfo(static_cast<uint32_t>(Entries.size()), Entries.data(),
-                                              Values.size()*sizeof(uint32_t), Values.data());
+    vk::SpecializationInfo SpecializationInfo(
+        static_cast<uint32_t>(Entries.size()), Entries.data(),
+        Values.size() * sizeof(uint32_t), Values.data());
     vk::ComputePipelineCreateInfo computePipelineInfo(
         vk::PipelineCreateFlags(),
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
                                           vk::ShaderStageFlagBits::eCompute,
                                           kernel->Program_->Module,
-                                          kernel->Name,
-                                          &SpecializationInfo),
+                                          kernel->Name, &SpecializationInfo),
         Queue->PipelineLayout.get());
 
     Queue->Pipeline =
@@ -1928,7 +1923,8 @@ pi_result VLK(piEnqueueKernelLaunch)(
     Queue->DescriptorSet = std::move(
         Device
             .allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo(
-                Queue->DescriptorPool.get(), 1, &Queue->DescriptorSetLayout.get()))
+                Queue->DescriptorPool.get(), 1,
+                &Queue->DescriptorSetLayout.get()))
             .front());
 
     std::vector<vk::WriteDescriptorSet> WriteSets{kernel->Arguments.size()};
@@ -2129,7 +2125,7 @@ pi_result VLK(piEnqueueMemBufferMap)(
     cl_map_flags map_flags, // TODO: untie from OpenCL
     size_t offset, size_t size, pi_uint32 num_events_in_wait_list,
     const pi_event *event_wait_list, pi_event *event, void **ret_map) {
-  
+
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
   // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
   if (memobj->HostPtr) {

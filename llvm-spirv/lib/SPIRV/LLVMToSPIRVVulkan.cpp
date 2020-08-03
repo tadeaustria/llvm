@@ -86,7 +86,7 @@ using namespace OCLUtil;
 namespace SPIRV {
 
 LLVMToSPIRVVulkan::LLVMToSPIRVVulkan(SPIRVModule *SMod)
-    : LLVMToSPIRV(SMod), runtimeArrayArguments() {}
+    : LLVMToSPIRV(SMod), RuntimeArrayArguments() {}
 
 void LLVMToSPIRVVulkan::transFunction(Function *I) {
   SPIRVFunction *BF = transFunctionDecl(I);
@@ -130,9 +130,9 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   FunctionAnalysisManager FAM;
   auto DomAnalysis = PostDominatorTreeAnalysis();
   FAM.registerPass([&] { return DomAnalysis; });
-  dominatorTree = DomAnalysis.run(*F, FAM);
+  DominatorTree = DomAnalysis.run(*F, FAM);
 
-  //dominatorTree.print(llvm::outs());
+  // DominatorTree.print(llvm::outs());
 
   SPIRVTypeFunction *BFT = static_cast<SPIRVTypeFunction *>(
       transType(getAnalysis<OCLTypeToSPIRV>().getAdaptedType(F)));
@@ -154,7 +154,7 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     }
     // auto VecUInt3 = BM->addVectorType(UIntType, 3);
     auto LocalSize =
-        BM->addSpecCompositeConstant(workgroupSizeType, LocalSizeElements);
+        BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
     LocalSize->addDecorate(
         new SPIRVDecorate(DecorationBuiltIn, LocalSize, BuiltInWorkgroupSize));
   }
@@ -221,15 +221,14 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     assert(ST->isSized());
 
     SPIRVTypeStruct *Ret;
-    if ( ST->getStructName().find("union") != std::string::npos ||
-         ST->getStructName().find("_arg_") != std::string::npos ) {
+    if (ST->getStructName().find("union") != std::string::npos ||
+        ST->getStructName().find("_arg_") != std::string::npos) {
       InParameterStructure = true;
-      Ret =
-          reinterpret_cast<SPIRVTypeStruct*>(LLVMToSPIRV::transType(T));
+      Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
       InParameterStructure = false;
       Ret->addDecorate(DecorationBlock);
 
-      //Ret->size
+      // Ret->size
     } else {
       Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
     }
@@ -251,7 +250,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     */
   } else if (auto Pt = dyn_cast<PointerType>(T)) {
     if (InParameterStructure) {
-      //if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
+      // if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
       auto subtype = Pt->getElementType();
       /*auto subsubtype = subtype->getElementType();
       auto addrspace = SPIRSPIRVAddrSpaceMap::map(
@@ -272,13 +271,15 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
   } else if (auto Ar = dyn_cast<ArrayType>(T)) {
     auto NewArr = LLVMToSPIRV::transType(T);
     NewArr->addDecorate(DecorationArrayStride,
-                        M->getDataLayout().getTypeStoreSize(Ar->getArrayElementType()).getFixedSize());
+                        M->getDataLayout()
+                            .getTypeStoreSize(Ar->getArrayElementType())
+                            .getFixedSize());
     return NewArr;
   } else if (auto *VecTy = dyn_cast<VectorType>(T)) {
     // Store special Vec3 UInt Type for Workgroup Constant
     if (VecTy->getNumElements() == 3 &&
         VecTy->getElementType()->isIntegerTy()) {
-      return workgroupSizeType = LLVMToSPIRV::transType(T);
+      return WorkgroupSizeType = LLVMToSPIRV::transType(T);
     }
   }
 
@@ -312,7 +313,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                                            bool CreateForward) {
 
   auto containsRTArray = [&](Value *V) {
-    auto TranslatedStructType = transType(V->getType())->getPointerElementType();
+    auto TranslatedStructType =
+        transType(V->getType())->getPointerElementType();
     if (TranslatedStructType->isTypeStruct()) {
       for (SPIRVWord i = 0; i < TranslatedStructType->getStructMemberCount();
            i++) {
@@ -342,7 +344,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       TransValue->addDecorate(DecorationBinding, ID);
     }
     if (containsRTArray(V)) {
-      runtimeArrayArguments.push_back(V);
+      RuntimeArrayArguments.push_back(V);
     }
     return TransValue;
   }
@@ -388,11 +390,12 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
 
     /*if (originGEP->getName().find("_arg_0") !=
         std::string::npos) {*/
-    if (std::find(runtimeArrayArguments.begin(), runtimeArrayArguments.end(),
-                  originGEP) != runtimeArrayArguments.end()) {
+    if (std::find(RuntimeArrayArguments.begin(), RuntimeArrayArguments.end(),
+                  originGEP) != RuntimeArrayArguments.end()) {
       std::vector<SPIRVValue *> MyIndices;
       // printf("Found Arg as Origin %llu\n", OtherIndizes.size());
-      for (auto OrgIndex = OrigIndices.begin() + 1; OrgIndex != OrigIndices.end(); OrgIndex++) {
+      for (auto OrgIndex = OrigIndices.begin() + 1;
+           OrgIndex != OrigIndices.end(); OrgIndex++) {
         MyIndices.push_back(LLVMToSPIRV::transValue(*OrgIndex, BB));
       }
 
@@ -418,7 +421,6 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                       LLVMToSPIRV::transValue(originGEP, BB),
                                       MyIndices, BB, GEP->isInBounds()));
       }
-
     }
 
     auto TypePointer = cast<PointerType>(GEP->getPointerOperand()->getType());
@@ -431,10 +433,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
               std::string::npos) {
         auto accessedType =
             TypePointer->getElementType()->getStructElementType(0);
-        if (accessedType->isPointerTy()){ //Access to RuntimeArray?
+        if (accessedType->isPointerTy()) { // Access to RuntimeArray?
           //// Check if the the last index (the runtime array) is accessed
-          //SPIRVValue *LastIndex = Indices[Indices.size() - 1];
-          //if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
+          // SPIRVValue *LastIndex = Indices[Indices.size() - 1];
+          // if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
           //  if (constant->getZExtIntValue() == 3) {
           // If yes, add another index to access first element within the
           // runtime array to get a element pointer
@@ -537,8 +539,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         }
         return BranchTranslated;
       } else {
-        if (auto Dominator = dominatorTree.findNearestCommonDominator(
-                 Branch->getSuccessor(0), Branch->getSuccessor(1))) {
+        if (auto Dominator = DominatorTree.findNearestCommonDominator(
+                Branch->getSuccessor(0), Branch->getSuccessor(1))) {
           BM->addSelectionMergeInst(
               LLVMToSPIRV::transValue(Dominator, BB)->getId(),
               /*SelectionControl None*/ 0, BB);
@@ -641,7 +643,7 @@ SPIRVInstruction *LLVMToSPIRVVulkan::transUnaryInst(UnaryInstruction *U,
                                                     SPIRVBasicBlock *BB) {
 
   Op BOC = OpNop;
-  if (auto Cast = dyn_cast<AddrSpaceCastInst>(U)) {
+  if (dyn_cast<AddrSpaceCastInst>(U)) {
     // Do noop and return translated value of the first operand
     return reinterpret_cast<SPIRVInstruction *>(
         getTranslatedValue(U->getOperand(0)));

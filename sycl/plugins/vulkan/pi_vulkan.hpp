@@ -193,12 +193,12 @@ struct _pi_empty_event : public _pi_event {
 template <typename T> struct _pi_event_impl : public _pi_event {
 
   T &myObj;
-  bool waited = false;
+  bool Waited = false;
   _pi_event_impl(T &obj) : _pi_event(), myObj(obj) {}
   void wait() override {
-    if (!waited) {
+    if (!Waited) {
       myObj.waitIdle();
-      waited = true;
+      Waited = true;
     }
   }
 

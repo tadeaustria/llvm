@@ -3515,50 +3515,55 @@ public:
     MemberExprBases.push_back(KernelObjCloneRef);
   }
 
-    ~SyclShaderBodyCreator() {
-      CompoundStmt *KernelBody = createKernelBody();
-      DeclCreator.setBody(KernelBody);
-    }
+    Stmt *DS = new (S.Context) DeclStmt(DeclGroupRef(KernelObjClone),
+                                        SourceLocation(), SourceLocation());
+    BodyStmts.push_back(DS);
+    DeclRefExpr *KernelObjCloneRef = DeclRefExpr::Create(
+        S.Context, NestedNameSpecifierLoc(), SourceLocation(), KernelObjClone,
+        false, DeclarationNameInfo(), QualType(KernelObj->getTypeForDecl(), 0),
+        VK_LValue);
+    MemberExprBases.push_back(KernelObjCloneRef);
+  }
 
-    bool handleSyclAccessorType(FieldDecl * FD, QualType Ty) final {
-      return handleSpecialType(FD, Ty);
-    }
+  ~SyclShaderBodyCreator() {
+    CompoundStmt *KernelBody = createKernelBody();
+    DeclCreator.setBody(KernelBody);
+  }
 
-    bool handleSyclAccessorType(const CXXBaseSpecifier &BS, QualType Ty) final {
-      // FIXME SYCL accessor should be usable as a base type
-      // See https://github.com/intel/llvm/issues/28.
-      return true;
-    }
+  bool handleSyclAccessorType(FieldDecl *FD, QualType Ty) final {
+    return handleSpecialType(FD, Ty);
+  }
 
-    bool handleSyclSamplerType(FieldDecl * FD, QualType Ty) final {
-      return handleSpecialType(FD, Ty);
-    }
+  bool handleSyclAccessorType(const CXXBaseSpecifier &BS, QualType Ty) final {
+    // FIXME SYCL accessor should be usable as a base type
+    // See https://github.com/intel/llvm/issues/28.
+    return true;
+  }
 
-    bool handleSyclStreamType(FieldDecl * FD, QualType Ty) final {
-      const auto *StreamDecl = Ty->getAsCXXRecordDecl();
-      createExprForStructOrScalar(FD);
-      createSpecialMethodCall(StreamDecl, MemberExprBases.back(),
-                              InitMethodName, FD);
-      createSpecialMethodCall(StreamDecl, MemberExprBases.back(),
-                              FinalizeMethodName, FD);
-      return true;
-    }
+  bool handleSyclSamplerType(FieldDecl *FD, QualType Ty) final {
+    return handleSpecialType(FD, Ty);
+  }
 
-    bool handleSyclStreamType(const CXXBaseSpecifier &BS, QualType Ty) final {
-      // FIXME SYCL stream should be usable as a base type
-      // See https://github.com/intel/llvm/issues/1552
-      return true;
-    }
+  bool handleSyclStreamType(FieldDecl *FD, QualType Ty) final {
+    const auto *StreamDecl = Ty->getAsCXXRecordDecl();
+    createExprForStructOrScalar(FD);
+    createSpecialMethodCall(StreamDecl, MemberExprBases.back(), InitMethodName,
+                            FD);
+    createSpecialMethodCall(StreamDecl, MemberExprBases.back(),
+                            FinalizeMethodName, FD);
+    return true;
+  }
 
-    bool handlePointerType(FieldDecl * FD, QualType FieldTy) final {
-      createExprForStructOrScalar(FD);
-      return true;
-    }
+  bool handleSyclStreamType(const CXXBaseSpecifier &BS, QualType Ty) final {
+    // FIXME SYCL stream should be usable as a base type
+    // See https://github.com/intel/llvm/issues/1552
+    return true;
+  }
 
-    bool handleStructType(FieldDecl * FD, QualType FieldTy) final {
-      createExprForStructOrScalar(FD);
-      return true;
-    }
+  bool handlePointerType(FieldDecl *FD, QualType FieldTy) final {
+    createExprForStructOrScalar(FD);
+    return true;
+  }
 
   bool handleScalarType(FieldDecl *FD, QualType FieldTy) final {
     if (dyn_cast<ArraySubscriptExpr>(MemberExprBases.back()))
