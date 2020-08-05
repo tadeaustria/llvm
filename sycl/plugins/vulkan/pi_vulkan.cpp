@@ -254,32 +254,32 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
                       param_value_size_ret, value);
 }
 
-template <>
-[[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
-    size_t param_value_size, void *param_value, size_t *param_value_size_ret,
-    std::vector<vk::ExtensionProperties> *value) {
-  size_t counter = 0;
-  char *targetString = reinterpret_cast<char *>(param_value);
-
-  for (auto &ext : *value) {
-    counter += strlen(ext.extensionName) + 1;
-    if (param_value) {
-      if (counter > param_value_size)
-        return PI_INVALID_VALUE;
-      memcpy(targetString, ext.extensionName, strlen(ext.extensionName));
-      targetString += strlen(ext.extensionName) + 1;
-      targetString[-1] = ' ';
-    }
-  }
-  if (param_value)
-    targetString[-1] = '\0';
-  if (param_value_size_ret)
-    *param_value_size_ret = counter;
-
-  return PI_SUCCESS;
-  // return getInfoArray(strlen(value) + 1, param_value_size, param_value,
-  //                    param_value_size_ret, value);
-}
+//template <>
+//[[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
+//    size_t param_value_size, void *param_value, size_t *param_value_size_ret,
+//    std::vector<vk::ExtensionProperties> *value) {
+//  size_t counter = 0;
+//  char *targetString = reinterpret_cast<char *>(param_value);
+//
+//  for (auto &ext : *value) {
+//    counter += strlen(ext.extensionName) + 1;
+//    if (param_value) {
+//      if (counter > param_value_size)
+//        return PI_INVALID_VALUE;
+//      memcpy(targetString, ext.extensionName, strlen(ext.extensionName));
+//      targetString += strlen(ext.extensionName) + 1;
+//      targetString[-1] = ' ';
+//    }
+//  }
+//  if (param_value)
+//    targetString[-1] = '\0';
+//  if (param_value_size_ret)
+//    *param_value_size_ret = counter;
+//
+//  return PI_SUCCESS;
+//  // return getInfoArray(strlen(value) + 1, param_value_size, param_value,
+//  //                    param_value_size_ret, value);
+//}
 
 /// \endcond
 
