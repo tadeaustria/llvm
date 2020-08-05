@@ -18,14 +18,16 @@ add_library(pi_vulkan SHARED
   "pi_vulkan.cpp"
   )
 
-add_dependencies(pi_vulkan
-  ocl-icd
-  ocl-headers
-)
+#add_dependencies(pi_vulkan
+#  ocl-icd
+#  ocl-headers
+#)
 
 add_dependencies(sycl-toolchain pi_vulkan)
 
-set_target_properties(pi_vulkan PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(pi_vulkan PROPERTIES 
+                        LINKER_LANGUAGE CXX
+                     )
 
 target_include_directories(pi_vulkan
   PRIVATE
@@ -42,9 +44,10 @@ endif()
 
 target_link_libraries(pi_vulkan 
 	PRIVATE Vulkan::Vulkan
-    PRIVATE OpenCL::Headers
-    PRIVATE ${OpenCL_LIBRARIES})
+  PRIVATE OpenCL::Headers
+  PRIVATE ${OpenCL_LIBRARIES})
     
+
 # add dynamic library functionality for RenderDoc
 if(CMAKE_DL_LIBS)
     target_link_libraries(pi_vulkan PRIVATE ${CMAKE_DL_LIBS})
