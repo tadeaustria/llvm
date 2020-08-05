@@ -122,7 +122,7 @@ public:
       return BackendPtr;
 
     const char *ValStr = BaseT::getRawValue();
-    const std::array<std::pair<std::string, backend>, 4> SyclBeMap = {
+    const std::array<std::pair<std::string, backend>, 5> SyclBeMap = {
         {{"PI_OPENCL", backend::opencl},
          {"PI_LEVEL_ZERO", backend::level_zero},
          {"PI_LEVEL0", backend::level_zero}, // for backward compatibility
