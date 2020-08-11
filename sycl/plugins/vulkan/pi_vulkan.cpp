@@ -502,7 +502,8 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
                        case vk::PhysicalDeviceType::eDiscreteGpu:
                        case vk::PhysicalDeviceType::eIntegratedGpu:
                        case vk::PhysicalDeviceType::eVirtualGpu:
-                         if (!(device_type & PI_DEVICE_TYPE_GPU))
+                         if (!(device_type & PI_DEVICE_TYPE_GPU) &&
+                             !(device_type & PI_DEVICE_TYPE_DEFAULT))
                            return true;
                          break;
                        default:
@@ -513,6 +514,9 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
 
   uint32_t SizeRelevantDevices =
       std::distance(DevicesVec.begin(), RelevantDevicesEnd);
+  if (SizeRelevantDevices < 1) {
+    return PI_DEVICE_NOT_FOUND;
+  }
   if (devices) {
     uint32_t MaxEntries = std::min<uint32_t>(num_entries, SizeRelevantDevices);
     std::vector<vk::PhysicalDevice>::iterator Device = DevicesVec.begin();
@@ -2028,7 +2032,8 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
       ret = PI_INVALID_MEM_OBJECT;
     }
     memobj->Context_->Device.unmapMemory(memobj->Memory);
-    *event = new _pi_empty_event();
+    if (event)
+      *event = new _pi_empty_event();
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
@@ -2089,11 +2094,24 @@ NOT_IMPL(pi_result VLK(piEnqueueMemBufferCopyRect),
           pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
           pi_event *event))
 
-NOT_IMPL(pi_result VLK(piEnqueueMemBufferFill),
-         (pi_queue command_queue, pi_mem Buffer, const void *pattern,
-          size_t pattern_size, size_t offset, size_t size,
-          pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
-          pi_event *event))
+pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
+                                      const void *pattern, size_t pattern_size,
+                                      size_t offset, size_t size,
+                                      pi_uint32 num_events_in_wait_list,
+                                      const pi_event *event_wait_list,
+                                      pi_event *event) {
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
+
+  char *MappedData = reinterpret_cast<char *>(
+      buffer->Context_->Device.mapMemory(buffer->Memory, offset, size));
+  for (size_t i = 0; i < size; i += pattern_size) {
+    memcpy(MappedData + i, pattern, pattern_size);
+  }
+  buffer->Context_->Device.unmapMemory(buffer->Memory);
+  if (event)
+    *event = new _pi_event_impl<vk::Device>(buffer->Context_->Device);
+  return PI_SUCCESS;
+}
 
 NOT_IMPL(pi_result VLK(piEnqueueMemImageRead),
          (pi_queue command_queue, pi_mem image, pi_bool blocking_read,

@@ -20,16 +20,20 @@ const unsigned int LATEST_KNOWN_CUDA_DRIVER_API_VERSION = 3020u;
 
 using namespace cl::sycl;
 
-class CudaBaseObjectsTest : public ::testing::Test {
+class VulkanBaseObjectsTest : public ::testing::Test {
 protected:
   detail::plugin plugin = pi::initializeAndGet(backend::vulkan);
 
-  CudaBaseObjectsTest() = default;
+  VulkanBaseObjectsTest() = default;
 
-  ~CudaBaseObjectsTest() = default;
+  ~VulkanBaseObjectsTest() = default;
 };
 
-TEST_F(CudaBaseObjectsTest, piContextCreate) {
+TEST_F(VulkanBaseObjectsTest, piContextCreateTestiTest) {
+  ASSERT_EQ(1, 1) << "Test failed correctly\n";
+}
+
+TEST_F(VulkanBaseObjectsTest, piContextCreate) {
   pi_uint32 numPlatforms = 0;
   pi_platform platform = nullptr;
   pi_device device;
@@ -60,7 +64,7 @@ TEST_F(CudaBaseObjectsTest, piContextCreate) {
       << "piContextCreate failed.\n";
 
   EXPECT_NE(ctxt, nullptr);
-  EXPECT_EQ(ctxt->, device->PhDevice);
+  EXPECT_EQ(ctxt->PhDevice_, device);
 
   //// Retrieve the cuCtxt to check information is correct
   //CUcontext cudaContext = ctxt->;
@@ -70,149 +74,4 @@ TEST_F(CudaBaseObjectsTest, piContextCreate) {
 
   //CUresult cuErr = cuCtxDestroy(cudaContext);
   //ASSERT_EQ(cuErr, CUDA_SUCCESS);
-}
-
-TEST_F(CudaBaseObjectsTest, piContextCreatePrimaryTrue) {
-  pi_uint32 numPlatforms = 0;
-  pi_platform platform;
-  pi_device device;
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                0, nullptr, &numPlatforms)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                numPlatforms, &platform, nullptr)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piDevicesGet>(
-                platform, PI_DEVICE_TYPE_GPU, 1, &device, nullptr)),
-            PI_SUCCESS);
-  pi_context_properties properties[] = {PI_CONTEXT_PROPERTIES_CUDA_PRIMARY,
-                                        PI_TRUE, 0};
-
-  pi_context ctxt;
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextCreate>(
-                properties, 1, &device, nullptr, nullptr, &ctxt)),
-            PI_SUCCESS);
-  EXPECT_NE(ctxt, nullptr);
-  EXPECT_EQ(ctxt->get_device(), device);
-  EXPECT_TRUE(ctxt->is_primary());
-
-  // Retrieve the cuCtxt to check information is correct
-  CUcontext cudaContext = ctxt->get();
-  unsigned int version = 0;
-  CUresult cuErr = cuCtxGetApiVersion(cudaContext, &version);
-  ASSERT_EQ(cuErr, CUDA_SUCCESS);
-  EXPECT_EQ(version, LATEST_KNOWN_CUDA_DRIVER_API_VERSION);
-
-  // Current context in the stack?
-  CUcontext current;
-  cuErr = cuCtxGetCurrent(&current);
-  ASSERT_EQ(cuErr, CUDA_SUCCESS);
-  ASSERT_EQ(current, cudaContext);
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextRelease>(ctxt)),
-            PI_SUCCESS);
-}
-
-TEST_F(CudaBaseObjectsTest, piContextCreatePrimaryFalse) {
-  pi_uint32 numPlatforms = 0;
-  pi_platform platform;
-  pi_device device;
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                0, nullptr, &numPlatforms)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                numPlatforms, &platform, nullptr)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piDevicesGet>(
-                platform, PI_DEVICE_TYPE_GPU, 1, &device, nullptr)),
-            PI_SUCCESS);
-  pi_context_properties properties[] = {PI_CONTEXT_PROPERTIES_CUDA_PRIMARY,
-                                        PI_FALSE, 0};
-
-  pi_context ctxt;
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextCreate>(
-                properties, 1, &device, nullptr, nullptr, &ctxt)),
-            PI_SUCCESS);
-  EXPECT_NE(ctxt, nullptr);
-  EXPECT_EQ(ctxt->get_device(), device);
-  EXPECT_FALSE(ctxt->is_primary());
-
-  // Retrieve the cuCtxt to check information is correct
-  CUcontext cudaContext = ctxt->get();
-  unsigned int version = 0;
-  CUresult cuErr = cuCtxGetApiVersion(cudaContext, &version);
-  ASSERT_EQ(cuErr, CUDA_SUCCESS);
-  EXPECT_EQ(version, LATEST_KNOWN_CUDA_DRIVER_API_VERSION);
-
-  // Current context in the stack?
-  CUcontext current;
-  cuErr = cuCtxGetCurrent(&current);
-  ASSERT_EQ(cuErr, CUDA_SUCCESS);
-  ASSERT_EQ(current, cudaContext);
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextRelease>(ctxt)),
-            PI_SUCCESS);
-}
-
-TEST_F(CudaBaseObjectsTest, piContextCreateChildThread) {
-  pi_uint32 numPlatforms = 0;
-  pi_platform platform;
-  pi_device device;
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                0, nullptr, &numPlatforms)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piPlatformsGet>(
-                numPlatforms, &platform, nullptr)),
-            PI_SUCCESS)
-      << "piPlatformsGet failed.\n";
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piDevicesGet>(
-                platform, PI_DEVICE_TYPE_GPU, 1, &device, nullptr)),
-            PI_SUCCESS);
-
-  pi_context ctxt;
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextCreate>(
-                nullptr, 1, &device, nullptr, nullptr, &ctxt)),
-            PI_SUCCESS);
-  EXPECT_NE(ctxt, nullptr);
-
-  // Retrieve the cuCtxt to check information is correct
-  auto checkValue = [=]() {
-    CUcontext cudaContext = ctxt->get();
-    unsigned int version = 0;
-    auto cuErr = cuCtxGetApiVersion(cudaContext, &version);
-    EXPECT_EQ(cuErr, CUDA_SUCCESS);
-    EXPECT_EQ(version, LATEST_KNOWN_CUDA_DRIVER_API_VERSION);
-
-    // The current context is different from the current thread
-    CUcontext current;
-    cuErr = cuCtxGetCurrent(&current);
-    EXPECT_EQ(cuErr, CUDA_SUCCESS);
-    EXPECT_NE(cudaContext, current);
-
-    // Set the context from PI API as the current one
-    cuErr = cuCtxPushCurrent(cudaContext);
-    EXPECT_EQ(cuErr, CUDA_SUCCESS);
-
-    cuErr = cuCtxGetCurrent(&current);
-    EXPECT_EQ(cuErr, CUDA_SUCCESS);
-    EXPECT_EQ(cudaContext, current);
-  };
-  auto callContextFromOtherThread = std::thread(checkValue);
-
-  callContextFromOtherThread.join();
-
-  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piContextRelease>(ctxt)),
-            PI_SUCCESS);
 }
