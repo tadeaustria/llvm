@@ -15,13 +15,13 @@ find_package(Vulkan 1.2.141 REQUIRED)
 add_library(pi_vulkan SHARED
   "${sycl_inc_dir}/CL/sycl/detail/pi.h"
   "${sycl_inc_dir}/CL/sycl/detail/pi.hpp"
+  "pi_vulkan.hpp"
   "pi_vulkan.cpp"
   )
 
-#add_dependencies(pi_vulkan
-#  ocl-icd
-#  ocl-headers
-#)
+add_dependencies(pi_vulkan
+  ocl-headers
+)
 
 add_dependencies(sycl-toolchain pi_vulkan)
 
