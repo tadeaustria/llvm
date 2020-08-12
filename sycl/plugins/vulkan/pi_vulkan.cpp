@@ -173,34 +173,75 @@ pi_result mapVulkanErrToCLErr(const vk::SystemError &result) {
   return mapVulkanErrToCLErr(static_cast<vk::Result>(result.code().value()));
 }
 
-VkResult getBestComputeQueueNPH(vk::PhysicalDevice &physicalDevice,
-                                uint32_t &queueFamilyIndex) {
+vk::Result getBestQueueNPH(vk::PhysicalDevice &physicalDevice,
+                           uint32_t &queueFamilyIndex, vk::QueueFlags include,
+                           vk::QueueFlags exclude) {
 
   auto properties = physicalDevice.getQueueFamilyProperties();
   int i = 0;
   for (auto prop : properties) {
     vk::QueueFlags maskedFlags =
-        (~(vk::QueueFlagBits::eTransfer | vk::QueueFlagBits::eSparseBinding) &
-         prop.queueFlags);
-    if (!(vk::QueueFlagBits::eGraphics & maskedFlags) &&
-        (vk::QueueFlagBits::eCompute & maskedFlags)) {
+        //(~(vk::QueueFlagBits::eTransfer | vk::QueueFlagBits::eSparseBinding) &
+        prop.queueFlags;
+    if (!(exclude & maskedFlags) && (include & maskedFlags)) {
       queueFamilyIndex = i;
-      return VK_SUCCESS;
+      return vk::Result::eSuccess;
     }
     i++;
   }
   i = 0;
   for (auto prop : properties) {
     vk::QueueFlags maskedFlags =
-        (~(vk::QueueFlagBits::eTransfer | vk::QueueFlagBits::eSparseBinding) &
-         prop.queueFlags);
-    if (vk::QueueFlagBits::eCompute & maskedFlags) {
+        //(~(vk::QueueFlagBits::eTransfer | vk::QueueFlagBits::eSparseBinding) &
+        prop.queueFlags;
+    if (include & maskedFlags) {
       queueFamilyIndex = i;
-      return VK_SUCCESS;
+      return vk::Result::eSuccess;
     }
     i++;
   }
-  return VK_ERROR_INITIALIZATION_FAILED;
+  return vk::Result::eErrorInitializationFailed;
+}
+
+void _pi_mem::allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
+                          vk::Buffer &BufferTarget,
+                          vk::DeviceMemory &MemoryTarget) {
+  BufferTarget = Buffer;
+  auto BufferRequirements =
+      Context_->Device.getBufferMemoryRequirements(Buffer);
+  MemoryTarget = Context_->Device.allocateMemory(
+      vk::MemoryAllocateInfo(BufferRequirements.size, MemoryTypeIndex));
+  Context_->Device.bindBufferMemory(Buffer, MemoryTarget, 0);
+}
+
+void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
+                   vk::ArrayProxy<const vk::BufferCopy> regions) {
+
+  auto TransferQueue =
+      Context_->Device.getQueue(Context_->TransferQueueFamilyIndex, 0);
+  auto CommandPool =
+      Context_->Device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
+          vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+          Context_->TransferQueueFamilyIndex));
+  auto CommandBuffer =
+      std::move(Context_->Device
+                    .allocateCommandBuffers(vk::CommandBufferAllocateInfo(
+                        CommandPool.get(), vk::CommandBufferLevel::ePrimary, 1))
+                    .front());
+  CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse)));
+
+  CommandBuffer.copyBuffer(from, to, regions);
+
+  CommandBuffer.end();
+
+  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0, nullptr);
+
+  auto Fence = Context_->Device.createFenceUnique(vk::FenceCreateInfo());
+  TransferQueue.submit(1, &SubmitInfo, Fence.get());
+  TransferQueue.waitIdle();
+  while (Context_->Device.getFenceStatus(Fence.get()) != vk::Result::eSuccess)
+    ;
 }
 
 namespace {
@@ -254,7 +295,7 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
                       param_value_size_ret, value);
 }
 
-//template <>
+// template <>
 //[[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
 //    size_t param_value_size, void *param_value, size_t *param_value_size_ret,
 //    std::vector<vk::ExtensionProperties> *value) {
@@ -431,11 +472,9 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
                                               1, VK_API_VERSION_1_1);
 
           // initialize the vk::InstanceCreateInfo
-          std::vector<const char *> List = {
-              //"VK_LAYER_LUNARG_vktrace",
-              //"VK_LAYER_LUNARG_api_dump",
-              //"VK_LAYER_KHRONOS_validation"
-          };
+          std::vector<const char *> List = {//"VK_LAYER_LUNARG_vktrace",
+                                            //"VK_LAYER_LUNARG_api_dump",
+                                            "VK_LAYER_KHRONOS_validation"};
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
           Platform.Instance_ = vk::createInstance(instanceCreateInfo);
@@ -1098,13 +1137,11 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
 
   // get the best index into queueFamiliyProperties which supports compute and
   // stuff
-  getBestComputeQueueNPH(PhysicalDevice, ComputeQueueFamilyIndex);
+  vk::Result VkRes = getBestQueueNPH(PhysicalDevice, ComputeQueueFamilyIndex,
+                                     vk::QueueFlagBits::eCompute,
+                                     vk::QueueFlagBits::eGraphics);
 
-  // create a UniqueDevice
-  float QueuePriority = 0.0f;
-  vk::DeviceQueueCreateInfo DeviceQueueCreateInfo(
-      vk::DeviceQueueCreateFlags(),
-      static_cast<uint32_t>(ComputeQueueFamilyIndex), 1, &QueuePriority);
+  assert(VkRes == vk::Result::eSuccess);
 
   std::vector<const char *> EnabledExtensions = {"VK_KHR_variable_pointers"};
 
@@ -1112,12 +1149,26 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   Context->RefCounter_ = 1;
   Context->PhDevice_ = Device;
   Context->ComputeQueueFamilyIndex = ComputeQueueFamilyIndex;
+  VkRes = getBestQueueNPH(PhysicalDevice, Context->TransferQueueFamilyIndex,
+                          vk::QueueFlagBits::eTransfer,
+                          vk::QueueFlagBits::eGraphics |
+                              vk::QueueFlagBits::eCompute);
+  assert(VkRes == vk::Result::eSuccess);
+
+  // create a UniqueDevice
+  float QueuePriority = 0.0f;
+  std::array<vk::DeviceQueueCreateInfo, 2> DeviceQueueCreateInfo = {
+      vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(),
+                                ComputeQueueFamilyIndex, 1, &QueuePriority),
+      vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(),
+                                Context->TransferQueueFamilyIndex, 1,
+                                &QueuePriority)};
 
   vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
                      vk::PhysicalDeviceShaderFloat16Int8Features>
       CreateDeviceInfo = {
-          vk::DeviceCreateInfo(vk::DeviceCreateFlags(), 1,
-                               &DeviceQueueCreateInfo, 0, nullptr,
+          vk::DeviceCreateInfo(vk::DeviceCreateFlags(), DeviceQueueCreateInfo.size(),
+                               DeviceQueueCreateInfo.data(), 0, nullptr,
                                static_cast<uint32_t>(EnabledExtensions.size()),
                                EnabledExtensions.data()),
           vk::PhysicalDeviceFeatures2(),
@@ -1196,7 +1247,7 @@ pi_result VLK(piQueueCreate)(pi_context context, pi_device Device,
 
   auto CommandPool =
       context->Device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
-          vk::CommandPoolCreateFlags(), context->ComputeQueueFamilyIndex));
+          vk::CommandPoolCreateFlagBits::eResetCommandBuffer, context->ComputeQueueFamilyIndex));
 
   auto CommandBuffer =
       std::move(context->Device
@@ -1275,7 +1326,8 @@ NOT_IMPL(pi_result VLK(piextQueueCreateWithNativeHandle),
 pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                                  size_t size, void *host_ptr, pi_mem *ret_mem) {
   // set memoryTypeIndex to an invalid entry in the properties.memoryTypes array
-  uint32_t MemoryTypeIndex = VK_MAX_MEMORY_TYPES;
+  uint32_t MemoryTypeIndexHost = VK_MAX_MEMORY_TYPES;
+  uint32_t MemoryTypeIndexDevice = VK_MAX_MEMORY_TYPES;
 
   auto MemoryProperties = context->PhDevice_->PhDevice.getMemoryProperties();
 
@@ -1283,19 +1335,29 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     // if ((VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
     // |VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) &
     // memoryProperties.memoryTypes[k].propertyFlags &&
-    if ((vk::MemoryPropertyFlagBits::eHostVisible |
-         vk::MemoryPropertyFlagBits::eHostCoherent) &
+    if (vk::MemoryPropertyFlagBits::eHostVisible &
             MemoryProperties.memoryTypes[k].propertyFlags &&
         (size <
          MemoryProperties.memoryHeaps[MemoryProperties.memoryTypes[k].heapIndex]
              .size)) {
 
-      MemoryTypeIndex = k;
-      break;
+      if (MemoryTypeIndexHost == VK_MAX_MEMORY_TYPES)
+        MemoryTypeIndexHost = k;
+      // break;
+    } else if (vk::MemoryPropertyFlagBits::eDeviceLocal &
+                   MemoryProperties.memoryTypes[k].propertyFlags &&
+               (size <
+                MemoryProperties
+                    .memoryHeaps[MemoryProperties.memoryTypes[k].heapIndex]
+                    .size)) {
+
+      if (MemoryTypeIndexDevice == VK_MAX_MEMORY_TYPES)
+        MemoryTypeIndexDevice = k;
     }
   }
 
-  if (MemoryTypeIndex == VK_MAX_MEMORY_TYPES)
+  if (MemoryTypeIndexHost == VK_MAX_MEMORY_TYPES ||
+      MemoryTypeIndexDevice == VK_MAX_MEMORY_TYPES)
     return PI_OUT_OF_HOST_MEMORY; // or PI_OUT_OF_RESOURCES?
 
   try {
@@ -1306,7 +1368,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     //  vk::StructureChain<vk::MemoryAllocateInfo,
     //                     vk::ImportMemoryHostPointerInfoEXT>
     //      allocInfo = {
-    //          vk::MemoryAllocateInfo(size, MemoryTypeIndex),
+    //          vk::MemoryAllocateInfo(size, MemoryTypeIndexHost),
     //          vk::ImportMemoryHostPointerInfoEXT(
     //              vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
     //              host_ptr)};
@@ -1320,22 +1382,42 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
     //  // cl::sycl::detail::pi::die("HOST_PTR_USE not implemented");
     //} else {
 
-    auto NewMem = new _pi_mem(
-        MemoryTypeIndex,
-        context->Device.createBuffer(
-            vk::BufferCreateInfo(vk::BufferCreateFlags(), size,
-                                 vk::BufferUsageFlagBits::eStorageBuffer,
-                                 vk::SharingMode::eExclusive)),
-        context, flags & PI_MEM_FLAGS_HOST_PTR_USE ? host_ptr : nullptr);
+    // It seems that the PI does not say, whether the buffer
+    // is used for read or write only. If it works somehow,
+    // Dst & Src could be specified more clearly.
+    vk::BufferUsageFlags BufferCreationFlags =
+        vk::BufferUsageFlagBits::eTransferDst |
+        vk::BufferUsageFlagBits::eTransferSrc;
+
+    auto NewMem = new _pi_mem(context, flags, size, host_ptr);
+
+    std::array<uint32_t, 2> FamiliyIndizes = {
+        context->ComputeQueueFamilyIndex, context->TransferQueueFamilyIndex};
+
+    NewMem->allocHostMemory(
+        context->Device.createBuffer(vk::BufferCreateInfo(
+            vk::BufferCreateFlags(), size,
+            vk::BufferUsageFlagBits::eStorageBuffer | BufferCreationFlags,
+            vk::SharingMode::eConcurrent, FamiliyIndizes.size(),
+            FamiliyIndizes.data())),
+        MemoryTypeIndexHost);
+    NewMem->allocDeviceMemory(
+        context->Device.createBuffer(vk::BufferCreateInfo(
+            vk::BufferCreateFlags(), size,
+            vk::BufferUsageFlagBits::eStorageBuffer | BufferCreationFlags,
+            vk::SharingMode::eConcurrent, FamiliyIndizes.size(),
+            FamiliyIndizes.data())),
+        MemoryTypeIndexDevice);
     //}
     *ret_mem = NewMem;
     // FIXME: Not sure how or even if 'host pointer use' works in vulkan
     // for now copy data
     if (flags & PI_MEM_FLAGS_HOST_PTR_USE ||
         flags & PI_MEM_FLAGS_HOST_PTR_COPY) {
-      auto DeviceData = context->Device.mapMemory(NewMem->Memory, 0, size);
+      auto DeviceData = context->Device.mapMemory(NewMem->HostMemory, 0, size);
       memcpy(DeviceData, host_ptr, size);
-      context->Device.unmapMemory(NewMem->Memory);
+      context->Device.unmapMemory(NewMem->HostMemory);
+      NewMem->copyHtoD();
     }
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
@@ -1376,7 +1458,7 @@ pi_result VLK(piMemRetain)(pi_mem mem) {
 pi_result VLK(piMemRelease)(pi_mem mem) {
   mem->RefCounter_--;
   if (mem->RefCounter_ < 1) {
-    mem->Context_->Device.freeMemory(mem->Memory);
+    mem->releaseMemories();
     delete mem;
   }
   return PI_SUCCESS;
@@ -1447,7 +1529,7 @@ pi_result VLK(piextMemGetNativeHandle)(pi_mem mem,
                                        pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
   *nativeHandle =
-      reinterpret_cast<pi_native_handle>(&mem->Memory); // Or return Buffer?
+      reinterpret_cast<pi_native_handle>(&mem->HostMemory); // Or return Buffer?
   return PI_SUCCESS;
 }
 
@@ -1937,7 +2019,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
 
     for (size_t i = 0; i < kernel->Arguments.size(); i++) {
       DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
-          kernel->Arguments[i]->Buffer, 0, VK_WHOLE_SIZE);
+          kernel->Arguments[i]->HostBuffer, 0, VK_WHOLE_SIZE);
       WriteSets[i] = vk::WriteDescriptorSet{Queue->DescriptorSet.get(),
                                             static_cast<uint32_t>(i),
                                             0,
@@ -1953,7 +2035,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
     auto &CommandBuffer = Queue->CmdBuffer;
 
     CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
-        vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
+        vk::CommandBufferUsageFlagBits::eSimultaneousUse)));
 
     CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute,
                                Queue->Pipeline.get());
@@ -2025,13 +2107,14 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
   pi_result ret = PI_SUCCESS;
 
   try {
-    void *BufferPtr = memobj->Context_->Device.mapMemory(
-        memobj->Memory, 0, size, vk::MemoryMapFlags());
+    memobj->copyDtoH();
+    void *BufferPtr =
+        memobj->Context_->Device.mapMemory(memobj->HostMemory, 0, size);
 
     if (std::memcpy(ptr, BufferPtr, size) != ptr) {
       ret = PI_INVALID_MEM_OBJECT;
     }
-    memobj->Context_->Device.unmapMemory(memobj->Memory);
+    memobj->Context_->Device.unmapMemory(memobj->HostMemory);
     if (event)
       *event = new _pi_empty_event();
   } catch (vk::SystemError const &Err) {
@@ -2057,7 +2140,18 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                                        pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
-  command_queue->CmdBuffer.updateBuffer(memobj->Buffer, offset, size, ptr);
+  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+  command_queue->CmdBuffer.updateBuffer(memobj->DeviceBuffer, offset, size,
+                                        ptr);
+  command_queue->CmdBuffer.end();
+
+  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);
+
+  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
+  if (event)
+    *event = new _pi_event_impl<vk::Queue>(command_queue->Queue);
   return PI_SUCCESS;
 }
 
@@ -2081,8 +2175,16 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
   std::array<vk::BufferCopy, 1> Range = {
       vk::BufferCopy{src_offset, dst_offset, size}};
 
-  command_queue->CmdBuffer.copyBuffer(src_buffer->Buffer, dst_buffer->Buffer,
-                                      Range);
+  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+  command_queue->CmdBuffer.copyBuffer(src_buffer->HostBuffer,
+                                      dst_buffer->HostBuffer, Range);
+  command_queue->CmdBuffer.end();
+
+  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);
+
+  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
   return PI_SUCCESS;
 }
 
@@ -2102,14 +2204,33 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
                                       pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
-  char *MappedData = reinterpret_cast<char *>(
-      buffer->Context_->Device.mapMemory(buffer->Memory, offset, size));
+  /*char *MappedData = reinterpret_cast<char *>(
+      buffer->Context_->Device.mapMemory(buffer->HostMemory, offset, size));
   for (size_t i = 0; i < size; i += pattern_size) {
     memcpy(MappedData + i, pattern, pattern_size);
   }
-  buffer->Context_->Device.unmapMemory(buffer->Memory);
+  buffer->Context_->Device.unmapMemory(buffer->HostMemory);*/
+  // size must be a multiple of 4
+  // dstOffset must be a multiple of 4
+  assert(offset % 4 == 0);
+  assert(size % 4 == 0);
+  // data is the 4-byte word written repeatedly to the buffer to fill size bytes
+  // of data.
+  assert(pattern_size == 4);
+  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+  command_queue->CmdBuffer.fillBuffer(
+      buffer->DeviceBuffer, offset, size,
+      *reinterpret_cast<const uint32_t *>(pattern));
+  command_queue->CmdBuffer.end();
+
+  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);
+
+  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
+
   if (event)
-    *event = new _pi_event_impl<vk::Device>(buffer->Context_->Device);
+    *event = new _pi_event_impl<vk::Queue>(command_queue->Queue);
   return PI_SUCCESS;
 }
 
@@ -2152,8 +2273,10 @@ pi_result VLK(piEnqueueMemBufferMap)(
         command_queue, memobj, blocking_map, offset, size, memobj->HostPtr,
         num_events_in_wait_list, event_wait_list, event);
   } else {
+    if ((map_flags & CL_MAP_READ) || (map_flags & CL_MAP_WRITE))
+      memobj->copyDtoH(); // is blocking
     vk::Result Error = memobj->Context_->Device.mapMemory(
-        memobj->Memory, offset, size, vk::MemoryMapFlags(), ret_map);
+        memobj->HostMemory, offset, size, vk::MemoryMapFlags(), ret_map);
     return mapVulkanErrToCLErr(Error);
   }
 }
@@ -2166,7 +2289,14 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   if (!memobj->HostPtr)
-    memobj->Context_->Device.unmapMemory(memobj->Memory);
+    memobj->Context_->Device.unmapMemory(memobj->HostMemory);
+
+  if (memobj->LastMapFlags & CL_MAP_WRITE ||
+      memobj->LastMapFlags & CL_MAP_WRITE_INVALIDATE_REGION)
+    memobj->copyHtoD();
+
+  memobj->LastMapFlags = 0ul;
+
   *event = new _pi_empty_event();
   return PI_SUCCESS;
 }

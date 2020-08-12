@@ -74,6 +74,7 @@ struct _ref_counter {
 struct _pi_context : public _ref_counter {
   vk::Device Device;
   uint32_t ComputeQueueFamilyIndex;
+  uint32_t TransferQueueFamilyIndex;
   pi_device PhDevice_;
 };
 
@@ -106,24 +107,56 @@ struct _pi_queue : public _ref_counter {
 };
 
 struct _pi_mem : public _ref_counter {
-  vk::DeviceMemory Memory;
-  vk::Buffer Buffer;
+  vk::DeviceMemory HostMemory;
+  vk::Buffer HostBuffer;
+  vk::DeviceMemory DeviceMemory;
+  vk::Buffer DeviceBuffer;
   pi_context Context_;
+  pi_mem_flags MemFlags;
+  size_t TotalMemorySize;
+
+  cl_map_flags LastMapFlags = 0ul;
+
   void *HostPtr;
-  _pi_mem(uint32_t MemoryTypeIndex, vk::Buffer Buffer_, pi_context Context,
-          void *HostPtr_)
-      : _ref_counter{1}, Memory(), Buffer(Buffer_), Context_(Context), HostPtr(HostPtr_) {
+  _pi_mem(pi_context Context, pi_mem_flags MemFlags_,
+          size_t TotalMemorySize_, void *HostPtr_)
+      : _ref_counter{1}, Context_(Context), MemFlags(MemFlags_),
+        HostPtr(MemFlags_ & PI_MEM_FLAGS_HOST_PTR_USE ? HostPtr_ : nullptr),
+        TotalMemorySize(TotalMemorySize_) {
     if (Context_) {
       VLK(piContextRetain)(Context_);
       // Allocated Memory must be at least the required size for Buffer
       // This is either the requested memory size or at least the
       // required minimal size of the hardware
-      auto BufferRequirements =
-          Context_->Device.getBufferMemoryRequirements(Buffer);
-      Memory = Context->Device.allocateMemory(
-          vk::MemoryAllocateInfo(BufferRequirements.size, MemoryTypeIndex));
-      Context_->Device.bindBufferMemory(Buffer, Memory, 0);
     }
+  }
+  
+  void allocMemory(vk::Buffer &Buffer,
+                   uint32_t MemoryTypeIndex, vk::Buffer &BufferTarget,
+                   vk::DeviceMemory &MemoryTarget);
+
+  void allocHostMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex) {
+    allocMemory(Buffer_, MemoryTypeIndex, HostBuffer, HostMemory);
+  }
+  void allocDeviceMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex) {
+    allocMemory(Buffer_, MemoryTypeIndex, DeviceBuffer, DeviceMemory);
+  }
+
+  void copy(vk::Buffer &from, vk::Buffer &to,
+            vk::ArrayProxy<const vk::BufferCopy> regions);
+  void copy(vk::Buffer &from, vk::Buffer &to) {
+    std::array<const vk::BufferCopy, 1> totalSize = { vk::BufferCopy(0, 0, TotalMemorySize) };
+    copy(from, to, totalSize);
+  }
+
+  void copyHtoD() { copy(HostBuffer, DeviceBuffer); }
+  void copyDtoH() { copy(DeviceBuffer, HostBuffer); }
+  
+  void releaseMemories() { 
+    Context_->Device.destroyBuffer(HostBuffer);
+    Context_->Device.freeMemory(HostMemory);
+    Context_->Device.destroyBuffer(DeviceBuffer);
+    Context_->Device.freeMemory(DeviceMemory);
   }
 
   ~_pi_mem() {
@@ -201,7 +234,6 @@ template <typename T> struct _pi_event_impl : public _pi_event {
       Waited = true;
     }
   }
-
 };
 
 #undef VLK

@@ -29,10 +29,6 @@ protected:
   ~VulkanBaseObjectsTest() = default;
 };
 
-TEST_F(VulkanBaseObjectsTest, piContextCreateTestiTest) {
-  ASSERT_EQ(1, 1) << "Test failed correctly\n";
-}
-
 TEST_F(VulkanBaseObjectsTest, piContextCreate) {
   pi_uint32 numPlatforms = 0;
   pi_platform platform = nullptr;
