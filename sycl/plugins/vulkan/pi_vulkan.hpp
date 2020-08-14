@@ -75,7 +75,13 @@ struct _pi_context : public _ref_counter {
   vk::Device Device;
   uint32_t ComputeQueueFamilyIndex;
   uint32_t TransferQueueFamilyIndex;
+  vk::UniqueSemaphore Timeline;
+  uint64_t lastTimelineValue = 1;
   pi_device PhDevice_;
+
+  ~_pi_context() { 
+    
+  }
 };
 
 struct _pi_queue : public _ref_counter {
@@ -101,8 +107,10 @@ struct _pi_queue : public _ref_counter {
   }
 
   ~_pi_queue() {
-    if (Context_)
+    if (Context_) {
+      Context_->Device.freeCommandBuffers(CommandPool.get(), 1u, &CmdBuffer);
       VLK(piContextRelease)(Context_);
+      }
   }
 };
 
@@ -118,8 +126,8 @@ struct _pi_mem : public _ref_counter {
   cl_map_flags LastMapFlags = 0ul;
 
   void *HostPtr;
-  _pi_mem(pi_context Context, pi_mem_flags MemFlags_,
-          size_t TotalMemorySize_, void *HostPtr_)
+  _pi_mem(pi_context Context, pi_mem_flags MemFlags_, size_t TotalMemorySize_,
+          void *HostPtr_)
       : _ref_counter{1}, Context_(Context), MemFlags(MemFlags_),
         HostPtr(MemFlags_ & PI_MEM_FLAGS_HOST_PTR_USE ? HostPtr_ : nullptr),
         TotalMemorySize(TotalMemorySize_) {
@@ -130,10 +138,9 @@ struct _pi_mem : public _ref_counter {
       // required minimal size of the hardware
     }
   }
-  
-  void allocMemory(vk::Buffer &Buffer,
-                   uint32_t MemoryTypeIndex, vk::Buffer &BufferTarget,
-                   vk::DeviceMemory &MemoryTarget);
+
+  void allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
+                   vk::Buffer &BufferTarget, vk::DeviceMemory &MemoryTarget);
 
   void allocHostMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex) {
     allocMemory(Buffer_, MemoryTypeIndex, HostBuffer, HostMemory);
@@ -143,16 +150,18 @@ struct _pi_mem : public _ref_counter {
   }
 
   void copy(vk::Buffer &from, vk::Buffer &to,
-            vk::ArrayProxy<const vk::BufferCopy> regions);
-  void copy(vk::Buffer &from, vk::Buffer &to) {
-    std::array<const vk::BufferCopy, 1> totalSize = { vk::BufferCopy(0, 0, TotalMemorySize) };
-    copy(from, to, totalSize);
+            vk::ArrayProxy<const vk::BufferCopy> regions, bool isBlocking);
+  void copy(vk::Buffer &from, vk::Buffer &to, bool isBlocking) {
+    std::array<const vk::BufferCopy, 1> totalSize = {
+        vk::BufferCopy(0, 0, TotalMemorySize)};
+    copy(from, to, totalSize, isBlocking);
   }
+  void copyHtoD() { copy(HostBuffer, DeviceBuffer, false); }
+  void copyDtoH() { copy(DeviceBuffer, HostBuffer, false); }
+  void copyHtoDblocking() { copy(HostBuffer, DeviceBuffer, true); }
+  void copyDtoHblocking() { copy(DeviceBuffer, HostBuffer, true); }
 
-  void copyHtoD() { copy(HostBuffer, DeviceBuffer); }
-  void copyDtoH() { copy(DeviceBuffer, HostBuffer); }
-  
-  void releaseMemories() { 
+  void releaseMemories() {
     Context_->Device.destroyBuffer(HostBuffer);
     Context_->Device.freeMemory(HostMemory);
     Context_->Device.destroyBuffer(DeviceBuffer);
@@ -161,6 +170,7 @@ struct _pi_mem : public _ref_counter {
 
   ~_pi_mem() {
     if (Context_)
+      releaseMemories();
       VLK(piContextRelease)(Context_);
   }
 };
@@ -221,6 +231,26 @@ struct _pi_event : public _ref_counter {
 
 struct _pi_empty_event : public _pi_event {
   void wait() override { return; }
+};
+
+struct _pi_timeline_event : public _pi_event {
+  _pi_timeline_event(pi_context context_, vk::Semaphore semaphore_,
+                     uint64_t waitValue)
+      : Context(context_), Semaphore(semaphore_), Value(waitValue) {}
+
+  pi_context Context;
+  vk::Semaphore Semaphore;
+  uint64_t Value;
+
+  void wait() override {
+    vk::DispatchLoaderDynamic dldid(Context->PhDevice_->Platform_->Instance_,
+                                    vkGetInstanceProcAddr, Context->Device,
+                                    vkGetDeviceProcAddr);
+    Context->Device.waitSemaphoresKHR(
+        vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlags(), 1, &Semaphore,
+                                 &Value),
+        UINT64_MAX, dldid);
+  }
 };
 
 template <typename T> struct _pi_event_impl : public _pi_event {

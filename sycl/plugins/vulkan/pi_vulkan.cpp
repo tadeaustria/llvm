@@ -214,34 +214,81 @@ void _pi_mem::allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
   Context_->Device.bindBufferMemory(Buffer, MemoryTarget, 0);
 }
 
+void lateFree(pi_context Context_, vk::CommandPool CommandPool, vk::CommandBuffer CommandBuffer, uint64_t waitFor) {
+  vk::DispatchLoaderDynamic dldid(Context_->PhDevice_->Platform_->Instance_,
+                                  vkGetInstanceProcAddr, Context_->Device,
+                                  vkGetDeviceProcAddr);
+  Context_->Device.waitSemaphoresKHR(
+      vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlagsKHR(), 1,
+                               &Context_->Timeline.get(),
+                               &waitFor),
+      UINT64_MAX, dldid);
+  Context_->Device.freeCommandBuffers(CommandPool, 1, &CommandBuffer);
+}
+
 void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
-                   vk::ArrayProxy<const vk::BufferCopy> regions) {
+                   vk::ArrayProxy<const vk::BufferCopy> regions,
+                   bool isBlocking) {
 
   auto TransferQueue =
       Context_->Device.getQueue(Context_->TransferQueueFamilyIndex, 0);
   auto CommandPool =
-      Context_->Device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
+      Context_->Device.createCommandPool(vk::CommandPoolCreateInfo(
           vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
           Context_->TransferQueueFamilyIndex));
   auto CommandBuffer =
       std::move(Context_->Device
                     .allocateCommandBuffers(vk::CommandBufferAllocateInfo(
-                        CommandPool.get(), vk::CommandBufferLevel::ePrimary, 1))
+                        CommandPool, vk::CommandBufferLevel::ePrimary, 1))
                     .front());
   CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
-      vk::CommandBufferUsageFlagBits::eSimultaneousUse)));
+      vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
   CommandBuffer.copyBuffer(from, to, regions);
 
   CommandBuffer.end();
 
-  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0, nullptr);
+  Context_->lastTimelineValue++;
+  vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+      SubmitInfo = {
+          vk::SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 1,
+                         &Context_->Timeline.get()),
+          vk::TimelineSemaphoreSubmitInfo(
+                        0, nullptr, 1, &Context_->lastTimelineValue)};
+  // vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0,
+  // nullptr);
 
-  auto Fence = Context_->Device.createFenceUnique(vk::FenceCreateInfo());
-  TransferQueue.submit(1, &SubmitInfo, Fence.get());
-  TransferQueue.waitIdle();
-  while (Context_->Device.getFenceStatus(Fence.get()) != vk::Result::eSuccess)
-    ;
+  TransferQueue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(), vk::Fence());
+  if (isBlocking) {
+    lateFree(Context_, CommandPool, CommandBuffer, Context_->lastTimelineValue);
+  }
+  else {
+    std::thread(lateFree, Context_, CommandPool, CommandBuffer, Context_->lastTimelineValue).detach();
+  }
+}
+
+void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
+               uint64_t waitValue) {
+  vk::DispatchLoaderDynamic dldid(
+      memobj->Context_->PhDevice_->Platform_->Instance_, vkGetInstanceProcAddr,
+      memobj->Context_->Device, vkGetDeviceProcAddr);
+  memobj->Context_->Device.waitSemaphoresKHR(
+      vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlagsKHR(), 1,
+                               &memobj->Context_->Timeline.get(), &waitValue),
+      UINT64_MAX, dldid);
+
+  void *BufferPtr =
+      memobj->Context_->Device.mapMemory(memobj->HostMemory, offset, size);
+
+  if (std::memcpy(targetPtr, BufferPtr, size) != targetPtr) {
+    // ret = PI_INVALID_MEM_OBJECT;
+  }
+  memobj->Context_->Device.unmapMemory(memobj->HostMemory);
+
+  // vk::SemaphoreSignalInfo SignalInfo(memobj->Context_->Timeline.get(),
+  // waitValue + 1);
+  memobj->Context_->Device.signalSemaphoreKHR(
+      vk::SemaphoreSignalInfoKHR(memobj->Context_->Timeline.get(), waitValue + 1),dldid);
 }
 
 namespace {
@@ -474,7 +521,8 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           // initialize the vk::InstanceCreateInfo
           std::vector<const char *> List = {//"VK_LAYER_LUNARG_vktrace",
                                             //"VK_LAYER_LUNARG_api_dump",
-                                            "VK_LAYER_KHRONOS_validation"};
+                                            //"VK_LAYER_KHRONOS_validation"
+          };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
           Platform.Instance_ = vk::createInstance(instanceCreateInfo);
@@ -1143,7 +1191,8 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
 
   assert(VkRes == vk::Result::eSuccess);
 
-  std::vector<const char *> EnabledExtensions = {"VK_KHR_variable_pointers"};
+  std::vector<const char *> EnabledExtensions = {"VK_KHR_variable_pointers",
+                                                 "VK_KHR_timeline_semaphore"};
 
   pi_context Context = new _pi_context();
   Context->RefCounter_ = 1;
@@ -1165,14 +1214,17 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
                                 &QueuePriority)};
 
   vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
-                     vk::PhysicalDeviceShaderFloat16Int8Features>
+                     vk::PhysicalDeviceShaderFloat16Int8Features,
+                     vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR>
       CreateDeviceInfo = {
-          vk::DeviceCreateInfo(vk::DeviceCreateFlags(), DeviceQueueCreateInfo.size(),
+          vk::DeviceCreateInfo(vk::DeviceCreateFlags(),
+                               DeviceQueueCreateInfo.size(),
                                DeviceQueueCreateInfo.data(), 0, nullptr,
                                static_cast<uint32_t>(EnabledExtensions.size()),
                                EnabledExtensions.data()),
           vk::PhysicalDeviceFeatures2(),
-          vk::PhysicalDeviceShaderFloat16Int8Features()};
+          vk::PhysicalDeviceShaderFloat16Int8Features(),
+          vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR( true )};
   CreateDeviceInfo.get<vk::PhysicalDeviceFeatures2>().features.setShaderInt64(
       true);
   CreateDeviceInfo.get<vk::PhysicalDeviceShaderFloat16Int8Features>()
@@ -1180,6 +1232,14 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
 
   Context->Device =
       PhysicalDevice.createDevice(CreateDeviceInfo.get<vk::DeviceCreateInfo>());
+
+  vk::StructureChain<vk::SemaphoreCreateInfo, vk::SemaphoreTypeCreateInfoKHR>
+      SemaphoreCreate = {
+          vk::SemaphoreCreateInfo(vk::SemaphoreCreateFlags()),
+          vk::SemaphoreTypeCreateInfoKHR(vk::SemaphoreTypeKHR::eTimeline, 0)};
+
+  Context->Timeline = Context->Device.createSemaphoreUnique(
+      SemaphoreCreate.get<vk::SemaphoreCreateInfo>());
 
   *retcontext = Context;
   return Errcode_ret;
@@ -1247,7 +1307,8 @@ pi_result VLK(piQueueCreate)(pi_context context, pi_device Device,
 
   auto CommandPool =
       context->Device.createCommandPoolUnique(vk::CommandPoolCreateInfo(
-          vk::CommandPoolCreateFlagBits::eResetCommandBuffer, context->ComputeQueueFamilyIndex));
+          vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+          context->ComputeQueueFamilyIndex));
 
   auto CommandBuffer =
       std::move(context->Device
@@ -1417,7 +1478,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
       auto DeviceData = context->Device.mapMemory(NewMem->HostMemory, 0, size);
       memcpy(DeviceData, host_ptr, size);
       context->Device.unmapMemory(NewMem->HostMemory);
-      NewMem->copyHtoD();
+      NewMem->copyHtoDblocking();
     }
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
@@ -1458,7 +1519,6 @@ pi_result VLK(piMemRetain)(pi_mem mem) {
 pi_result VLK(piMemRelease)(pi_mem mem) {
   mem->RefCounter_--;
   if (mem->RefCounter_ < 1) {
-    mem->releaseMemories();
     delete mem;
   }
   return PI_SUCCESS;
@@ -2019,7 +2079,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
 
     for (size_t i = 0; i < kernel->Arguments.size(); i++) {
       DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
-          kernel->Arguments[i]->HostBuffer, 0, VK_WHOLE_SIZE);
+          kernel->Arguments[i]->DeviceBuffer, 0, VK_WHOLE_SIZE);
       WriteSets[i] = vk::WriteDescriptorSet{Queue->DescriptorSet.get(),
                                             static_cast<uint32_t>(i),
                                             0,
@@ -2065,15 +2125,24 @@ pi_result VLK(piEnqueueKernelLaunch)(
 
     CommandBuffer.end();
 
-    vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0,
-                              nullptr);
+    Queue->Context_->lastTimelineValue++;
+    vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+        SubmitInfo = {vk::SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 1,
+                                     &Queue->Context_->Timeline.get()),
+                      vk::TimelineSemaphoreSubmitInfo(
+                          0, nullptr, 1, &Queue->Context_->lastTimelineValue)};
+    /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0,
+                              nullptr);*/
 
     auto VulkanQueue =
         Device.getQueue(Queue->Context_->ComputeQueueFamilyIndex, 0);
-    VulkanQueue.submit(1, &SubmitInfo, vk::Fence());
+    VulkanQueue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(), vk::Fence());
     // Device.waitIdle();
 
-    *event = new _pi_event_impl<vk::Device>(Device);
+    if (event)
+      *event = new _pi_timeline_event(Queue->Context_,
+                                      Queue->Context_->Timeline.get(),
+                                      Queue->Context_->lastTimelineValue);
 
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
@@ -2107,16 +2176,25 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
   pi_result ret = PI_SUCCESS;
 
   try {
-    memobj->copyDtoH();
-    void *BufferPtr =
-        memobj->Context_->Device.mapMemory(memobj->HostMemory, 0, size);
+    if (blocking_read) {
+      memobj->copyDtoHblocking();
+      void *BufferPtr =
+          memobj->Context_->Device.mapMemory(memobj->HostMemory, offset, size);
 
-    if (std::memcpy(ptr, BufferPtr, size) != ptr) {
-      ret = PI_INVALID_MEM_OBJECT;
+      if (std::memcpy(ptr, BufferPtr, size) != ptr) {
+        ret = PI_INVALID_MEM_OBJECT;
+      }
+      memobj->Context_->Device.unmapMemory(memobj->HostMemory);
+    } else {
+      memobj->copyDtoH();
+      std::thread(localCopy, memobj, ptr, size, offset,
+                  memobj->Context_->lastTimelineValue).detach();
+      memobj->Context_->lastTimelineValue++;
+      if (event)
+        *event = new _pi_timeline_event(memobj->Context_,
+                                        memobj->Context_->Timeline.get(),
+                                        memobj->Context_->lastTimelineValue);
     }
-    memobj->Context_->Device.unmapMemory(memobj->HostMemory);
-    if (event)
-      *event = new _pi_empty_event();
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
@@ -2146,12 +2224,27 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                                         ptr);
   command_queue->CmdBuffer.end();
 
-  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
-                            0, nullptr);
+  command_queue->Context_->lastTimelineValue++;
+  vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+      SubmitInfo = {
+          vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
+                         &command_queue->Context_->Timeline.get()),
+                    vk::TimelineSemaphoreSubmitInfo(
+              0, nullptr, 1,
+              &command_queue->Context_->lastTimelineValue)};
+  /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);*/
 
-  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
+  command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
+                              vk::Fence());
+  auto Event = std::make_unique<_pi_timeline_event>(
+      memobj->Context_, memobj->Context_->Timeline.get(),
+      memobj->Context_->lastTimelineValue);
+  if (blocking_write) {
+    Event->wait();
+  }
   if (event)
-    *event = new _pi_event_impl<vk::Queue>(command_queue->Queue);
+    *event = Event.release();
   return PI_SUCCESS;
 }
 
@@ -2181,10 +2274,23 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
                                       dst_buffer->HostBuffer, Range);
   command_queue->CmdBuffer.end();
 
-  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
-                            0, nullptr);
+  command_queue->Context_->lastTimelineValue++;
+  vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+      SubmitInfo = {
+          vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
+                         &command_queue->Context_->Timeline.get()),
+          vk::TimelineSemaphoreSubmitInfo(
+              0, nullptr, 1, &command_queue->Context_->lastTimelineValue)};
+  /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);*/
 
-  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
+  command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
+                              vk::Fence());
+  auto Event = std::make_unique<_pi_timeline_event>(
+      command_queue->Context_, command_queue->Context_->Timeline.get(),
+      command_queue->Context_->lastTimelineValue);
+  if (event)
+    *event = Event.release();
   return PI_SUCCESS;
 }
 
@@ -2216,22 +2322,38 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
   assert(size % 4 == 0);
   // data is the 4-byte word written repeatedly to the buffer to fill size bytes
   // of data.
-  assert(pattern_size == 4);
-  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
-      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
-  command_queue->CmdBuffer.fillBuffer(
-      buffer->DeviceBuffer, offset, size,
-      *reinterpret_cast<const uint32_t *>(pattern));
-  command_queue->CmdBuffer.end();
+  if (pattern_size == 4) {
+    command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+        vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+    command_queue->CmdBuffer.fillBuffer(
+        buffer->DeviceBuffer, offset, size,
+        *reinterpret_cast<const uint32_t *>(pattern));
+    command_queue->CmdBuffer.end();
 
-  vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
-                            0, nullptr);
+    command_queue->Context_->lastTimelineValue++;
+    vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+        SubmitInfo = {
+            vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
+                           &command_queue->Context_->Timeline.get()),
+            vk::TimelineSemaphoreSubmitInfo(
+                0, nullptr, 1, &command_queue->Context_->lastTimelineValue)};
+    /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1,
+       &command_queue->CmdBuffer, 0, nullptr);*/
 
-  command_queue->Queue.submit(1, &SubmitInfo, vk::Fence());
+    command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
+                                vk::Fence());
+    auto Event = std::make_unique<_pi_timeline_event>(
+        command_queue->Context_,
+        command_queue->Context_->Timeline.get(),
+        command_queue->Context_->lastTimelineValue);
+    if (event)
+      *event = Event.release();
 
-  if (event)
-    *event = new _pi_event_impl<vk::Queue>(command_queue->Queue);
-  return PI_SUCCESS;
+    return PI_SUCCESS;
+  } else {
+    cl::sycl::detail::pi::die("functionname not implemented");
+    return PI_INVALID_EVENT;
+  }
 }
 
 NOT_IMPL(pi_result VLK(piEnqueueMemImageRead),
@@ -2274,7 +2396,17 @@ pi_result VLK(piEnqueueMemBufferMap)(
         num_events_in_wait_list, event_wait_list, event);
   } else {
     if ((map_flags & CL_MAP_READ) || (map_flags & CL_MAP_WRITE))
-      memobj->copyDtoH(); // is blocking
+      if (blocking_map) {
+        memobj->copyDtoHblocking();
+      } else {
+        memobj->copyDtoH();
+        auto Event = std::make_unique<_pi_timeline_event>(
+            command_queue->Context_,
+            command_queue->Context_->Timeline.get(),
+            command_queue->Context_->lastTimelineValue);
+        if (event)
+          *event = Event.release();
+      }
     vk::Result Error = memobj->Context_->Device.mapMemory(
         memobj->HostMemory, offset, size, vk::MemoryMapFlags(), ret_map);
     return mapVulkanErrToCLErr(Error);
@@ -2292,12 +2424,21 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
     memobj->Context_->Device.unmapMemory(memobj->HostMemory);
 
   if (memobj->LastMapFlags & CL_MAP_WRITE ||
-      memobj->LastMapFlags & CL_MAP_WRITE_INVALIDATE_REGION)
+      memobj->LastMapFlags & CL_MAP_WRITE_INVALIDATE_REGION) {
     memobj->copyHtoD();
 
-  memobj->LastMapFlags = 0ul;
+    memobj->LastMapFlags = 0ul;
 
-  *event = new _pi_empty_event();
+    auto Event = std::make_unique<_pi_timeline_event>(
+        command_queue->Context_, command_queue->Context_->Timeline.get(),
+        command_queue->Context_->lastTimelineValue);
+    if (event)
+      *event = Event.release();
+  }else{
+    if(event)
+      *event = new _pi_empty_event();
+  }
+
   return PI_SUCCESS;
 }
 
