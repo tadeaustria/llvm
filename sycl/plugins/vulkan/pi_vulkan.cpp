@@ -223,7 +223,10 @@ void lateFree(pi_context Context_, vk::CommandPool CommandPool, vk::CommandBuffe
                                &Context_->Timeline.get(),
                                &waitFor),
       UINT64_MAX, dldid);
+
+  // Cleanup
   Context_->Device.freeCommandBuffers(CommandPool, 1, &CommandBuffer);
+  Context_->Device.destroyCommandPool(CommandPool);
 }
 
 void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
@@ -414,6 +417,18 @@ extern "C" {
 pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
                                  size_t size, void *host_ptr, pi_mem *ret_mem);
 pi_result VLK(piMemRetain)(pi_mem mem);
+pi_result VLK(piEnqueueMemBufferMap)(pi_queue command_queue, pi_mem memobj,
+                                     pi_bool blocking_map,
+                                     cl_map_flags map_flags, size_t offset,
+                                     size_t size,
+                                     pi_uint32 num_events_in_wait_list,
+                                     const pi_event *event_wait_list,
+                                     pi_event *event, void **ret_map);
+pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
+                                 void *mapped_ptr,
+                                 pi_uint32 num_events_in_wait_list,
+                                 const pi_event *event_wait_list,
+                                 pi_event *event);
 }
 
 pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
@@ -521,7 +536,7 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           // initialize the vk::InstanceCreateInfo
           std::vector<const char *> List = {//"VK_LAYER_LUNARG_vktrace",
                                             //"VK_LAYER_LUNARG_api_dump",
-                                            //"VK_LAYER_KHRONOS_validation"
+                                            "VK_LAYER_KHRONOS_validation"
           };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
@@ -2310,18 +2325,15 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
                                       pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
-  /*char *MappedData = reinterpret_cast<char *>(
-      buffer->Context_->Device.mapMemory(buffer->HostMemory, offset, size));
-  for (size_t i = 0; i < size; i += pattern_size) {
-    memcpy(MappedData + i, pattern, pattern_size);
-  }
-  buffer->Context_->Device.unmapMemory(buffer->HostMemory);*/
   // size must be a multiple of 4
   // dstOffset must be a multiple of 4
   assert(offset % 4 == 0);
   assert(size % 4 == 0);
   // data is the 4-byte word written repeatedly to the buffer to fill size bytes
   // of data.
+
+  // Vulkan only supports direct buffer fill for a 4 Byte Size element
+  // use native function if patternsize is 4 Byte
   if (pattern_size == 4) {
     command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
         vk::CommandBufferUsageFlagBits::eSimultaneousUse));
@@ -2337,8 +2349,6 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
                            &command_queue->Context_->Timeline.get()),
             vk::TimelineSemaphoreSubmitInfo(
                 0, nullptr, 1, &command_queue->Context_->lastTimelineValue)};
-    /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1,
-       &command_queue->CmdBuffer, 0, nullptr);*/
 
     command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
                                 vk::Fence());
@@ -2351,8 +2361,27 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
 
     return PI_SUCCESS;
   } else {
-    cl::sycl::detail::pi::die("functionname not implemented");
-    return PI_INVALID_EVENT;
+    assert(size % pattern_size == 0);
+
+    // For arbitrary pattern sizes map memory
+    // and do manual buffer fill using memcpy
+    // and move to device through unmap
+    // TODO: Think about offset and size - for now it is complete overwrite
+    char *MapPtr = nullptr;
+    pi_result Result = VLK(piEnqueueMemBufferMap)(
+        command_queue, buffer, false, CL_MAP_WRITE_INVALIDATE_REGION, offset,
+        size, num_events_in_wait_list, event_wait_list, nullptr,
+        (reinterpret_cast<void **>(&MapPtr)));
+    if (Result != PI_SUCCESS) {
+      return Result;
+    }
+    for (uint32_t i = 0; i < size; i += pattern_size) {
+      printf("AddressMap 0x%p: %hhd", MapPtr, MapPtr[i]);
+      memcpy(MapPtr + i, pattern, pattern_size);
+      printf("  To: %hhd\n", MapPtr[i]);
+    }
+    return VLK(piEnqueueMemUnmap)(command_queue, buffer, MapPtr, 0, nullptr,
+                                  event);
   }
 }
 
@@ -2388,25 +2417,26 @@ pi_result VLK(piEnqueueMemBufferMap)(
     const pi_event *event_wait_list, pi_event *event, void **ret_map) {
 
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
-  // cl_map_flags map_flags  for read/write is not (yet?) supported in VULKAN
+
+  memobj->LastMapFlags = map_flags;
   if (memobj->HostPtr) {
     *ret_map = memobj->HostPtr;
     return VLK(piEnqueueMemBufferRead)(
         command_queue, memobj, blocking_map, offset, size, memobj->HostPtr,
         num_events_in_wait_list, event_wait_list, event);
   } else {
-    if ((map_flags & CL_MAP_READ) || (map_flags & CL_MAP_WRITE))
+    if ((map_flags & CL_MAP_READ) || (map_flags & CL_MAP_WRITE)) {
       if (blocking_map) {
         memobj->copyDtoHblocking();
       } else {
         memobj->copyDtoH();
         auto Event = std::make_unique<_pi_timeline_event>(
-            command_queue->Context_,
-            command_queue->Context_->Timeline.get(),
+            command_queue->Context_, command_queue->Context_->Timeline.get(),
             command_queue->Context_->lastTimelineValue);
         if (event)
           *event = Event.release();
       }
+    }
     vk::Result Error = memobj->Context_->Device.mapMemory(
         memobj->HostMemory, offset, size, vk::MemoryMapFlags(), ret_map);
     return mapVulkanErrToCLErr(Error);
@@ -2419,15 +2449,28 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  const pi_event *event_wait_list,
                                  pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
-
+  
   if (!memobj->HostPtr)
     memobj->Context_->Device.unmapMemory(memobj->HostMemory);
 
   if (memobj->LastMapFlags & CL_MAP_WRITE ||
       memobj->LastMapFlags & CL_MAP_WRITE_INVALIDATE_REGION) {
-    memobj->copyHtoD();
 
     memobj->LastMapFlags = 0ul;
+
+    if (memobj->HostPtr) 
+    {
+      // If it is a "fake" host pointer, do writing into device buffer directly
+      // alternative would be FakeHostPtr -> HostMem -> DeviceMem
+      // but this saves the additional copy
+      // TODO: Think about offset and size (maybe remember from MAP)
+      return VLK(piEnqueueMemBufferWrite)(
+          command_queue, memobj, false, 0, memobj->TotalMemorySize, mapped_ptr,
+          num_events_in_wait_list, event_wait_list, event);
+    }
+    // In this case the memory is already written in Host Memory
+    // simple asynchronously copy to device 
+    memobj->copyHtoD();
 
     auto Event = std::make_unique<_pi_timeline_event>(
         command_queue->Context_, command_queue->Context_->Timeline.get(),
@@ -2435,6 +2478,8 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
     if (event)
       *event = Event.release();
   }else{
+    memobj->LastMapFlags = 0ul;
+
     if(event)
       *event = new _pi_empty_event();
   }
