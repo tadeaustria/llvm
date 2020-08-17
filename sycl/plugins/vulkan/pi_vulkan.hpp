@@ -217,7 +217,7 @@ struct _pi_kernel : public _ref_counter {
     }
   }
 
-  pi_result addArgument(pi_uint32 ArgIndex, pi_mem Memobj);
+  pi_result addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj);
   pi_result addArgument(pi_uint32 ArgIndex, size_t arg_size,
                         const void *arg_value);
 };

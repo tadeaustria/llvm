@@ -65,7 +65,7 @@ TEST_F(VulkanTestMemObj, piMemBufferCreateSimple) {
   const size_t memSize = 1024u;
   pi_mem memObj;
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemBufferCreate>(
-                context_, PI_MEM_FLAGS_ACCESS_RW, memSize, nullptr, &memObj)),
+                context_, PI_MEM_FLAGS_ACCESS_RW, memSize, nullptr, &memObj, nullptr)),
             PI_SUCCESS);
 
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemRelease>(memObj)),
@@ -77,7 +77,7 @@ TEST_F(VulkanTestMemObj, piMemBufferAllocHost) {
   pi_mem memObj;
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemBufferCreate>(
                 context_, PI_MEM_FLAGS_ACCESS_RW | PI_MEM_FLAGS_HOST_PTR_ALLOC,
-                memSize, nullptr, &memObj)),
+                memSize, nullptr, &memObj, nullptr)),
             PI_SUCCESS);
 
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemRelease>(memObj)),
@@ -98,7 +98,7 @@ TEST_F(VulkanTestMemObj, piMemBufferPinnedMappedRead) {
   pi_mem memObj;
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemBufferCreate>(
                 context_, PI_MEM_FLAGS_ACCESS_RW | PI_MEM_FLAGS_HOST_PTR_ALLOC,
-                memSize, nullptr, &memObj)),
+                memSize, nullptr, &memObj, nullptr)),
             PI_SUCCESS);
 
   ASSERT_EQ(
@@ -137,7 +137,7 @@ TEST_F(VulkanTestMemObj, piMemBufferPinnedMappedWrite) {
   pi_mem memObj;
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piMemBufferCreate>(
                 context_, PI_MEM_FLAGS_ACCESS_RW | PI_MEM_FLAGS_HOST_PTR_ALLOC,
-                memSize, nullptr, &memObj)),
+                memSize, nullptr, &memObj, nullptr)),
             PI_SUCCESS);
 
   int *host_ptr = nullptr;

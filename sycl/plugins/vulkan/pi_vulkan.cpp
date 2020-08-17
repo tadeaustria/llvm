@@ -345,36 +345,21 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
                       param_value_size_ret, value);
 }
 
-// template <>
-//[[maybe_unused]] pi_result getInfo<std::vector<vk::ExtensionProperties> *>(
-//    size_t param_value_size, void *param_value, size_t *param_value_size_ret,
-//    std::vector<vk::ExtensionProperties> *value) {
-//  size_t counter = 0;
-//  char *targetString = reinterpret_cast<char *>(param_value);
-//
-//  for (auto &ext : *value) {
-//    counter += strlen(ext.extensionName) + 1;
-//    if (param_value) {
-//      if (counter > param_value_size)
-//        return PI_INVALID_VALUE;
-//      memcpy(targetString, ext.extensionName, strlen(ext.extensionName));
-//      targetString += strlen(ext.extensionName) + 1;
-//      targetString[-1] = ' ';
-//    }
-//  }
-//  if (param_value)
-//    targetString[-1] = '\0';
-//  if (param_value_size_ret)
-//    *param_value_size_ret = counter;
-//
-//  return PI_SUCCESS;
-//  // return getInfoArray(strlen(value) + 1, param_value_size, param_value,
-//  //                    param_value_size_ret, value);
-//}
-
 /// \endcond
 
 } // anonymous namespace
+
+
+template <typename... Args>
+void mySaveSnprintf(size_t param_value_size, void *param_value,
+                      size_t *param_value_size_ret,
+                      const char *format, Args... args) {
+  if (param_value) {
+    snprintf(cast<char *>(param_value), param_value_size, format, args...);
+  } else if (param_value_size_ret) {
+    *param_value_size_ret = snprintf(nullptr, 0, format, args...) + 1;
+  }
+}
 
 /// ------ Error handling, matching OpenCL plugin semantics.
 __SYCL_INLINE_NAMESPACE(cl) {
@@ -431,7 +416,7 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  pi_event *event);
 }
 
-pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
+pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj) {
 
   if (DescriptorSetLayoutBinding.size() <= ArgIndex) {
     DescriptorSetLayoutBinding.resize(ArgIndex + 1);
@@ -441,8 +426,8 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, pi_mem Memobj) {
                                           vk::DescriptorType::eStorageBuffer, 1,
                                           vk::ShaderStageFlagBits::eCompute};
 
-  Arguments[ArgIndex] = Memobj;
-  VLK(piMemRetain)(Memobj);
+  Arguments[ArgIndex] = *Memobj;
+  VLK(piMemRetain)(Arguments[ArgIndex]);
 
   return PI_SUCCESS;
 }
@@ -536,7 +521,7 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           // initialize the vk::InstanceCreateInfo
           std::vector<const char *> List = {//"VK_LAYER_LUNARG_vktrace",
                                             //"VK_LAYER_LUNARG_api_dump",
-                                            "VK_LAYER_KHRONOS_validation"
+                                            //"VK_LAYER_KHRONOS_validation"
           };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
@@ -865,7 +850,6 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
     return getInfo(param_value_size, param_value, param_value_size_ret, false);
   }
   case PI_DEVICE_INFO_HOST_UNIFIED_MEMORY: {
-
     return getInfo(param_value_size, param_value, param_value_size_ret,
                    Properties.deviceType ==
                        vk::PhysicalDeviceType::eIntegratedGpu);
@@ -916,37 +900,32 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
                    Device->Platform_);
   }
   case PI_DEVICE_INFO_NAME: {
-    return getInfo(param_value_size, param_value, param_value_size_ret,
-                   Properties.deviceName);
+    return getInfoArray(Properties.deviceName.size(), param_value_size,
+                        param_value, param_value_size_ret,
+                        Properties.deviceName.data());
   }
   case PI_DEVICE_INFO_VENDOR: {
-    *param_value_size_ret =
-        snprintf(cast<char *>(param_value), param_value_size, "%x",
-                 Properties.vendorID) +
-        1;
+    mySaveSnprintf(param_value_size, param_value, param_value_size_ret, "%x",
+                   Properties.vendorID);
     return PI_SUCCESS;
   }
   case PI_DEVICE_INFO_DRIVER_VERSION: {
-    *param_value_size_ret =
-        snprintf(cast<char *>(param_value), param_value_size, "%d.%d",
-                 VK_VERSION_MAJOR(Properties.driverVersion),
-                 VK_VERSION_MINOR(Properties.driverVersion)) +
-        1;
+    mySaveSnprintf(param_value_size, param_value, param_value_size_ret, "%d.%d",
+                   VK_VERSION_MAJOR(Properties.driverVersion),
+                   VK_VERSION_MINOR(Properties.driverVersion));
     return PI_SUCCESS;
   }
   case PI_DEVICE_INFO_PROFILE: {
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   "VULKAN");
+                   "Vulkan");
   }
   case PI_DEVICE_INFO_REFERENCE_COUNT: {
     return getInfo(param_value_size, param_value, param_value_size_ret, 1);
   }
   case PI_DEVICE_INFO_VERSION: {
-    *param_value_size_ret =
-        snprintf(cast<char *>(param_value), param_value_size, "VULKAN %d.%d",
-                 VK_VERSION_MAJOR(Properties.apiVersion),
-                 VK_VERSION_MINOR(Properties.apiVersion)) +
-        1;
+    mySaveSnprintf(param_value_size, param_value, param_value_size_ret,
+                   "Vulkan %d.%d", VK_VERSION_MAJOR(Properties.apiVersion),
+                   VK_VERSION_MINOR(Properties.apiVersion));
     return PI_SUCCESS;
   }
   case PI_DEVICE_INFO_OPENCL_C_VERSION: {
@@ -1465,7 +1444,7 @@ pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
         vk::BufferUsageFlagBits::eTransferDst |
         vk::BufferUsageFlagBits::eTransferSrc;
 
-    auto NewMem = new _pi_mem(context, flags, size, host_ptr);
+    pi_mem NewMem = new _pi_mem(context, flags, size, host_ptr);
 
     std::array<uint32_t, 2> FamiliyIndizes = {
         context->ComputeQueueFamilyIndex, context->TransferQueueFamilyIndex};
@@ -2489,7 +2468,7 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
 
 pi_result VLK(piextKernelSetArgMemObj)(pi_kernel kernel, pi_uint32 arg_index,
                                        const pi_mem *arg_value) {
-  return kernel->addArgument(arg_index, *arg_value);
+  return kernel->addArgument(arg_index, arg_value);
 }
 
 //
