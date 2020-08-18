@@ -19,6 +19,9 @@
 #ifdef USE_PI_CUDA
 #include <cuda.h>
 #endif // USE_PI_CUDA
+#ifdef USE_PI_VULKAN
+#include <vulkan/vulkan.hpp>
+#endif // USE_PI_VULKAN
 
 #include <algorithm>
 #include <cstdlib>
@@ -32,7 +35,7 @@ static const std::string help =
     "   Help\n"
     "   Example: ./get_device_count_by_type cpu opencl\n"
     "   Supported device types: cpu/gpu/accelerator/default/all\n"
-    "   Supported backends: PI_CUDA/PI_OPENCL/PI_LEVEL_ZERO \n"
+    "   Supported backends: PI_CUDA/PI_OPENCL/PI_LEVEL_ZERO/PI_VULKAN \n"
     "   Output format: <number_of_devices>:<additional_Information>";
 
 // Return the string with all characters translated to lower case.
@@ -224,6 +227,56 @@ static bool queryCUDA(cl_device_type deviceType, cl_uint &deviceCount,
 #endif
 }
 
+static bool queryVulkan(cl_device_type deviceType, cl_uint &deviceCount,
+                      std::string &msg) {
+  deviceCount = 0u;
+#ifdef USE_PI_VULKAN
+  // initialize the vk::ApplicationInfo structure
+  vk::ApplicationInfo applicationInfo("GET DEVICE COUNT Tool", 1,
+                                      "get_device_count_by_type.cpp", 1,
+                                      VK_API_VERSION_1_1);
+  auto instance = vk::createInstanceUnique(
+      vk::InstanceCreateInfo(vk::InstanceCreateFlags(), &applicationInfo));
+  auto phDevices = instance->enumeratePhysicalDevices();
+
+  auto RelevantDevicesEnd =
+      std::remove_if(phDevices.begin(), phDevices.end(),
+                     [deviceType](vk::PhysicalDevice &Device) {
+                       switch (Device.getProperties().deviceType) {
+                       case vk::PhysicalDeviceType::eCpu:
+                         if (!(deviceType & CL_DEVICE_TYPE_CPU))
+                           return true;
+                         break;
+                       case vk::PhysicalDeviceType::eDiscreteGpu:
+                       case vk::PhysicalDeviceType::eIntegratedGpu:
+                       case vk::PhysicalDeviceType::eVirtualGpu:
+                         if (!(deviceType & CL_DEVICE_TYPE_GPU) &&
+                             !(deviceType & CL_DEVICE_TYPE_DEFAULT))
+                           return true;
+                         break;
+                       default:
+                         return true;
+                       }
+                       return false;
+                     });
+
+  deviceCount = std::distance(phDevices.begin(), RelevantDevicesEnd);
+
+  if (deviceCount < 1) {
+    msg = "ERROR: VULKAN no device found";
+    return true;
+  }
+  msg = "vulkan ";
+  msg += deviceTypeToString(deviceType);
+  return true;
+#else
+  msg = "ERROR: VULKAN not supported";
+  deviceCount = 0u;
+
+  return false;
+#endif
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 3) {
     std::cout << "0:ERROR: Please set a device type and backend to find"
@@ -264,6 +317,8 @@ int main(int argc, char *argv[]) {
     querySuccess = queryLevelZero(deviceType, deviceCount, msg);
   } else if (backend == "cuda" || backend == "pi_cuda") {
     querySuccess = queryCUDA(deviceType, deviceCount, msg);
+  } else if (backend == "vulkan" || backend == "pi_vulkan") {
+    querySuccess = queryVulkan(deviceType, deviceCount, msg);
   } else {
     msg = "ERROR: Unknown backend " + backend + "\n" + help + "\n";
   }
