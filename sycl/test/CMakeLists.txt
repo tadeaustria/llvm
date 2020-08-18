@@ -126,3 +126,22 @@ if(SYCL_BUILD_PI_CUDA)
     EXCLUDE_FROM_CHECK_ALL
   )
 endif()
+
+if(SYCL_BUILD_PI_VULKAN)
+  add_lit_testsuite(check-sycl-vulkan "Running the SYCL regression tests for VULKAN"
+    ${CMAKE_CURRENT_BINARY_DIR}/on-device
+    ARGS ${RT_TEST_ARGS}
+    PARAMS "SYCL_PLUGIN=vulkan"
+    DEPENDS ${SYCL_TEST_DEPS}
+    EXCLUDE_FROM_CHECK_ALL
+  )
+  set_target_properties(check-sycl-vulkan PROPERTIES FOLDER "SYCL VULKAN tests")
+
+  add_dependencies(check-sycl check-sycl-vulkan)
+
+  add_lit_testsuites(SYCL-VULKAN ${CMAKE_CURRENT_SOURCE_DIR}/on-device
+    PARAMS "SYCL_PLUGIN=vulkan"
+    DEPENDS ${SYCL_TEST_DEPS}
+    EXCLUDE_FROM_CHECK_ALL
+  )
+endif()
