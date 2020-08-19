@@ -122,15 +122,15 @@ struct _pi_mem : public _ref_counter {
   pi_context Context_;
   pi_mem_flags MemFlags;
   size_t TotalMemorySize;
+  void *HostPtr;
 
   cl_map_flags LastMapFlags = 0ul;
 
-  void *HostPtr;
   _pi_mem(pi_context Context, pi_mem_flags MemFlags_, size_t TotalMemorySize_,
           void *HostPtr_)
       : _ref_counter{1}, Context_(Context), MemFlags(MemFlags_),
-        HostPtr(MemFlags_ & PI_MEM_FLAGS_HOST_PTR_USE ? HostPtr_ : nullptr),
-        TotalMemorySize(TotalMemorySize_) {
+        TotalMemorySize(TotalMemorySize_),
+        HostPtr(MemFlags_ & PI_MEM_FLAGS_HOST_PTR_USE ? HostPtr_ : nullptr) {
     if (Context_) {
       VLK(piContextRetain)(Context_);
       // Allocated Memory must be at least the required size for Buffer

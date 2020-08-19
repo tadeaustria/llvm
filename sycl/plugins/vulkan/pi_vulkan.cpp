@@ -24,8 +24,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
-#include <string>
-#include <vector>
+#include <thread>
 
 #ifdef WIN32
 #define WIN32_LEAN_AND_MEAN

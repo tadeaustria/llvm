@@ -11,6 +11,7 @@
 #This can be changed by copying the pi.hpp file in the plugins project.
 
 find_package(Vulkan 1.2.141 REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(pi_vulkan SHARED
   "${sycl_inc_dir}/CL/sycl/detail/pi.h"
@@ -41,6 +42,7 @@ endif()
 target_link_libraries(pi_vulkan 
 	PRIVATE Vulkan::Vulkan
   PRIVATE OpenCL::Headers
+  PRIVATE Threads::Threads
   PRIVATE ${OpenCL_LIBRARIES})
     
 
