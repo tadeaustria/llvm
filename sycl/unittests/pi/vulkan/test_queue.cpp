@@ -68,30 +68,11 @@ TEST_F(VulkanTestQueue, PICreateQueueSimple) {
   ASSERT_NE(queue, nullptr);
   EXPECT_EQ(queue->Context_, context_);
 
-  ASSERT_EQ(queue->RefCounter_, 1);
+  ASSERT_EQ(queue->RefCounter_, 1u);
 
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piQueueRelease>(queue)),
             PI_SUCCESS);
 }
-
-//TEST_F(VulkanTestQueue, PIQueueFinishSimple) {
-//  pi_queue queue;
-//  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piQueueCreate>(
-//                context_, device_, 0, &queue)),
-//            PI_SUCCESS);
-//  ASSERT_NE(queue, nullptr);
-//
-//  // todo: post work on queue, ensure the results are valid and the work is
-//  // complete after piQueueFinish?
-//
-//  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piQueueFinish>(queue)),
-//            PI_SUCCESS);
-//
-//  ASSERT_EQ(cuStreamQuery(queue->get()), CUDA_SUCCESS);
-//
-//  ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piQueueRelease>(queue)),
-//            PI_SUCCESS);
-//}
 
 TEST_F(VulkanTestQueue, PICreateQueueSimpleProperties) {
   pi_queue queue;
@@ -109,7 +90,7 @@ TEST_F(VulkanTestQueue, PICreateQueueSimpleProperties) {
                 &propertyRead, nullptr)),
             PI_SUCCESS);
 
-  ASSERT_EQ(propertyRead, CL_QUEUE_ON_DEVICE);
+  ASSERT_EQ(propertyRead, (pi_uint64)CL_QUEUE_ON_DEVICE);
 
   ASSERT_EQ((plugin.call_nocheck<detail::PiApiKind::piQueueRelease>(queue)),
             PI_SUCCESS);

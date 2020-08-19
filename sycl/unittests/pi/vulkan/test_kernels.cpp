@@ -12,9 +12,6 @@
 #include <CL/sycl.hpp>
 #include <CL/sycl/detail/pi.hpp>
 #include <detail/plugin.hpp>
-#include <filesystem>
-#include <iostream>
-#include <llvm/Support/Path.h>
 #include <pi_vulkan.hpp>
 
 // PI_VULKAN has no additional arguments
