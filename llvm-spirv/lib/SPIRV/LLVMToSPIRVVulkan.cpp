@@ -143,20 +143,21 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     BM->setName(BF, F->getName().str());
   if (oclIsKernel(F)) {
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
-    // FIXME: Make execution mode variable
-    /*BF->addExecutionMode(BM->add(new SPIRVExecutionMode(
-        BF, ExecutionMode::ExecutionModeLocalSize, 1, 1, 1)));*/
-    std::vector<SPIRVValue *> LocalSizeElements{3};
-    auto UIntType = BM->addIntegerType(32);
-    for (size_t i = 0; i < 3; i++) {
-      LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
-      LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+    // FIXME: Think about a different location for this only be done once
+    static bool Once = false;
+    if (!Once) {
+      std::vector<SPIRVValue *> LocalSizeElements{3};
+      auto UIntType = BM->addIntegerType(32);
+      for (size_t i = 0; i < 3; i++) {
+        LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+        LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+      }
+      auto LocalSize =
+          BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
+      LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize,
+                                               BuiltInWorkgroupSize));
+      Once = true;
     }
-    // auto VecUInt3 = BM->addVectorType(UIntType, 3);
-    auto LocalSize =
-        BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
-    LocalSize->addDecorate(
-        new SPIRVDecorate(DecorationBuiltIn, LocalSize, BuiltInWorkgroupSize));
   }
   // Vulkan no linkage decorations
   // else if (F->getLinkage() != GlobalValue::InternalLinkage)
