@@ -79,20 +79,27 @@ struct _pi_context : public _ref_counter {
   uint64_t lastTimelineValue = 1;
   pi_device PhDevice_;
 
-  ~_pi_context() { 
-    
+  ~_pi_context() {
+
   }
+};
+
+struct execution {
+  vk::UniqueDescriptorSetLayout DescriptorSetLayout;
+  vk::UniqueDescriptorPool DescriptorPool;
+  vk::UniquePipelineLayout PipelineLayout;
+  vk::UniquePipeline Pipeline;
+  vk::UniqueDescriptorSet DescriptorSet;
+
+  using uptr = std::unique_ptr<execution>;
 };
 
 struct _pi_queue : public _ref_counter {
   vk::Queue Queue;
   vk::UniqueCommandPool CommandPool;
   vk::CommandBuffer CmdBuffer;
-  vk::UniqueDescriptorSetLayout DescriptorSetLayout;
-  vk::UniqueDescriptorPool DescriptorPool;
-  vk::UniquePipelineLayout PipelineLayout;
-  vk::UniquePipeline Pipeline;
-  vk::UniqueDescriptorSet DescriptorSet;
+
+  std::vector<execution::uptr> storedExecutions;
 
   pi_context Context_;
   pi_queue_properties Properties_;
@@ -110,7 +117,7 @@ struct _pi_queue : public _ref_counter {
     if (Context_) {
       Context_->Device.freeCommandBuffers(CommandPool.get(), 1u, &CmdBuffer);
       VLK(piContextRelease)(Context_);
-      }
+    }
   }
 };
 
@@ -171,8 +178,17 @@ struct _pi_mem : public _ref_counter {
   ~_pi_mem() {
     if (Context_)
       releaseMemories();
-      VLK(piContextRelease)(Context_);
+    VLK(piContextRelease)(Context_);
   }
+};
+
+struct kernelInfoCache {
+  std::string KernelName;
+  uint32_t BaseArguments = 0;
+  uint32_t MaxArguments = 0;
+
+  kernelInfoCache(std::string kernelName, uint32_t baseArguments = 0)
+      : KernelName(kernelName), BaseArguments(baseArguments) {}
 };
 
 struct _pi_program : public _ref_counter {
@@ -180,13 +196,20 @@ struct _pi_program : public _ref_counter {
   pi_context Context_;
   const char *Source_;
   size_t SourceLength_;
+
+  std::vector<kernelInfoCache> KernelCache;
+
   _pi_program(vk::ShaderModule &&Module_, pi_context Context,
               const char *Source, size_t SourceLength)
       : _ref_counter{1}, Module(Module_), Context_(Context), Source_(Source),
-        SourceLength_(SourceLength) {
+        SourceLength_(SourceLength), KernelCache() {
     if (Context_)
       VLK(piContextRetain)(Context_);
   }
+
+  kernelInfoCache *find(const char *kernelName);
+  void addKernel(const char *kernelName);
+  void addKernelArgument(const char *kernelName, pi_uint32 idx);
 
   ~_pi_program() {
     if (Context_)

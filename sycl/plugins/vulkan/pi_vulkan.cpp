@@ -254,8 +254,8 @@ void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
       SubmitInfo = {
           vk::SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 1,
-                         &Context_->Timeline.get()),
-          vk::TimelineSemaphoreSubmitInfo(
+                                   &Context_->Timeline.get()),
+                    vk::TimelineSemaphoreSubmitInfo(
                         0, nullptr, 1, &Context_->lastTimelineValue)};
   // vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &CommandBuffer, 0,
   // nullptr);
@@ -267,6 +267,39 @@ void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   else {
     std::thread(lateFree, Context_, CommandPool, CommandBuffer, Context_->lastTimelineValue).detach();
   }
+}
+
+kernelInfoCache *_pi_program::find(const char *kernelName) {
+  auto Found = std::find_if(
+      KernelCache.begin(), KernelCache.end(), [kernelName](auto val) {
+        return strcmp(val.KernelName.c_str(), kernelName) == 0;
+      });
+  if (Found != KernelCache.end())
+    return &*Found;
+  return nullptr;
+}
+
+void _pi_program::addKernel(const char *kernelName) {
+  for (auto Cache : KernelCache) {
+    if (find(kernelName) != nullptr) {
+      return;
+    }
+  }
+  if (KernelCache.empty()) {
+    KernelCache.emplace_back(kernelName, 0);
+  } else {
+    KernelCache.emplace_back(kernelName,
+                             KernelCache[KernelCache.size() - 1].MaxArguments);
+  }
+}
+
+void _pi_program::addKernelArgument(const char *kernelName, pi_uint32 idx) {
+  auto KernelInfo = find(kernelName);
+  if (KernelInfo == nullptr) {
+    return;
+  }
+  KernelInfo->MaxArguments =
+      std::max(KernelInfo->MaxArguments, KernelInfo->BaseArguments + idx + 1);
 }
 
 void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
@@ -351,8 +384,8 @@ pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
 
 template <typename... Args>
 void mySaveSnprintf(size_t param_value_size, void *param_value,
-                      size_t *param_value_size_ret,
-                      const char *format, Args... args) {
+                    size_t *param_value_size_ret,
+                    const char *format, Args... args) {
   if (param_value) {
     snprintf(cast<char *>(param_value), param_value_size, format, args...);
   } else if (param_value_size_ret) {
@@ -421,13 +454,22 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj) {
     DescriptorSetLayoutBinding.resize(ArgIndex + 1);
   }
 
-  DescriptorSetLayoutBinding[ArgIndex] = {ArgIndex,
-                                          vk::DescriptorType::eStorageBuffer, 1,
-                                          vk::ShaderStageFlagBits::eCompute};
+  auto kernelInfo = Program_->find(this->Name);
+  if (kernelInfo) {
+    DescriptorSetLayoutBinding[ArgIndex] = {
+        kernelInfo->BaseArguments + ArgIndex,
+        vk::DescriptorType::eStorageBuffer, 1,
+        vk::ShaderStageFlagBits::eCompute};
+  } else {
+    DescriptorSetLayoutBinding[ArgIndex] = {
+        ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
+        vk::ShaderStageFlagBits::eCompute};
+  }
 
   Arguments[ArgIndex] = *Memobj;
   VLK(piMemRetain)(Arguments[ArgIndex]);
 
+  Program_->addKernelArgument(this->Name, ArgIndex);
   return PI_SUCCESS;
 }
 
@@ -438,9 +480,17 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
 
     if (DescriptorSetLayoutBinding.size() <= ArgIndex)
       DescriptorSetLayoutBinding.resize(ArgIndex + 1);
-    DescriptorSetLayoutBinding[ArgIndex] = {
-        ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
-        vk::ShaderStageFlagBits::eCompute};
+    auto kernelInfo = Program_->find(this->Name);
+    if (kernelInfo) {
+      DescriptorSetLayoutBinding[ArgIndex] = {
+          kernelInfo->BaseArguments + ArgIndex,
+          vk::DescriptorType::eStorageBuffer, 1,
+          vk::ShaderStageFlagBits::eCompute};
+    } else {
+      DescriptorSetLayoutBinding[ArgIndex] = {
+          ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
+          vk::ShaderStageFlagBits::eCompute};
+    }
 
     pi_mem mem;
     VLK(piMemBufferCreate)
@@ -454,6 +504,7 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
     (Program_->Context_, PI_MEM_FLAGS_HOST_PTR_COPY, arg_size,
      const_cast<void *>(arg_value), &vec->second);
   }
+  Program_->addKernelArgument(this->Name, ArgIndex);
   return PI_SUCCESS;
 }
 
@@ -1772,7 +1823,8 @@ pi_result VLK(piextProgramCreateWithNativeHandle)(pi_native_handle nativeHandle,
 
 pi_result VLK(piKernelCreate)(pi_program program, const char *kernel_name,
                               pi_kernel *ret_kernel) {
-
+  *ret_kernel = new _pi_kernel(kernel_name, program);
+  program->addKernel(kernel_name);
   return PI_SUCCESS;
 }
 
@@ -2003,16 +2055,17 @@ pi_result VLK(piEnqueueKernelLaunch)(
     rdoc_api->StartFrameCapture(NULL, NULL);
 
   try {
-    Queue->DescriptorSetLayout = Device.createDescriptorSetLayoutUnique(
+    execution::uptr Execution = std::make_unique<execution>();
+    Execution->DescriptorSetLayout = Device.createDescriptorSetLayoutUnique(
         vk::DescriptorSetLayoutCreateInfo(
             vk::DescriptorSetLayoutCreateFlags(),
             static_cast<uint32_t>(kernel->DescriptorSetLayoutBinding.size()),
             kernel->DescriptorSetLayoutBinding.data()));
 
     // create a PipelineLayout using that DescriptorSetLayout
-    Queue->PipelineLayout = Device.createPipelineLayoutUnique(
+    Execution->PipelineLayout = Device.createPipelineLayoutUnique(
         vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1,
-                                     &Queue->DescriptorSetLayout.get()));
+                                     &Execution->DescriptorSetLayout.get()));
 
     std::vector<uint32_t> Values;
     std::vector<vk::SpecializationMapEntry> Entries;
@@ -2032,6 +2085,17 @@ pi_result VLK(piEnqueueKernelLaunch)(
         Values = {512u, 1u, 1u};
         break;
       }
+
+      // If there is any conflict with default
+      // workgroup sizes simply do 1, 1, 1
+      if (global_work_size[0] % Values[0] != 0 ||
+          global_work_offset[0] % Values[0] != 0 ||
+          (work_dim >= 2 && (global_work_size[1] % Values[1] != 0 ||
+                             global_work_offset[1] % Values[1] != 0)) ||
+          (work_dim >= 3 && (global_work_size[2] % Values[2] != 0 ||
+                             global_work_offset[2] % Values[2] != 0))) {
+        Values = {1u, 1u, 1u};
+      }
     }
     for (size_t i = 0; i < Values.size(); i++) {
       Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
@@ -2046,41 +2110,43 @@ pi_result VLK(piEnqueueKernelLaunch)(
                                           vk::ShaderStageFlagBits::eCompute,
                                           kernel->Program_->Module,
                                           kernel->Name, &SpecializationInfo),
-        Queue->PipelineLayout.get());
+        Execution->PipelineLayout.get());
 
-    Queue->Pipeline =
+    Execution->Pipeline =
         Device.createComputePipelineUnique(nullptr, computePipelineInfo).value;
 
     auto DescriptorPoolSize = vk::DescriptorPoolSize(
         vk::DescriptorType::eStorageBuffer, kernel->Arguments.size());
-    Queue->DescriptorPool =
+    Execution->DescriptorPool =
         Device.createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo(
             vk::DescriptorPoolCreateFlags(
                 vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet),
             1, 1, &DescriptorPoolSize));
 
-    Queue->DescriptorSet = std::move(
+    Execution->DescriptorSet = std::move(
         Device
             .allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo(
-                Queue->DescriptorPool.get(), 1,
-                &Queue->DescriptorSetLayout.get()))
+                Execution->DescriptorPool.get(), 1,
+                &Execution->DescriptorSetLayout.get()))
             .front());
 
     std::vector<vk::WriteDescriptorSet> WriteSets{kernel->Arguments.size()};
     std::vector<std::unique_ptr<vk::DescriptorBufferInfo>>
         DescriptorBufferInfos{kernel->Arguments.size()};
 
+    auto KernelBaseInfo = kernel->Program_->find(kernel->Name);
     for (size_t i = 0; i < kernel->Arguments.size(); i++) {
       DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
           kernel->Arguments[i]->DeviceBuffer, 0, VK_WHOLE_SIZE);
-      WriteSets[i] = vk::WriteDescriptorSet{Queue->DescriptorSet.get(),
-                                            static_cast<uint32_t>(i),
-                                            0,
-                                            1,
-                                            vk::DescriptorType::eStorageBuffer,
-                                            nullptr,
-                                            DescriptorBufferInfos[i].get(),
-                                            nullptr};
+      WriteSets[i] = vk::WriteDescriptorSet{
+          Execution->DescriptorSet.get(),
+          static_cast<uint32_t>(i + KernelBaseInfo->BaseArguments),
+          0,
+          1,
+          vk::DescriptorType::eStorageBuffer,
+          nullptr,
+          DescriptorBufferInfos[i].get(),
+          nullptr};
     }
 
     Device.updateDescriptorSets(WriteSets, nullptr);
@@ -2091,11 +2157,11 @@ pi_result VLK(piEnqueueKernelLaunch)(
         vk::CommandBufferUsageFlagBits::eSimultaneousUse)));
 
     CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute,
-                               Queue->Pipeline.get());
+                               Execution->Pipeline.get());
 
-    CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                                     Queue->PipelineLayout.get(), 0, 1,
-                                     &Queue->DescriptorSet.get(), 0, nullptr);
+    CommandBuffer.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute, Execution->PipelineLayout.get(), 0, 1,
+        &Execution->DescriptorSet.get(), 0, nullptr);
 
     assert(global_work_size[0] % Values[0] == 0);
     assert(global_work_offset[0] % Values[0] == 0);
@@ -2131,6 +2197,8 @@ pi_result VLK(piEnqueueKernelLaunch)(
         Device.getQueue(Queue->Context_->ComputeQueueFamilyIndex, 0);
     VulkanQueue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(), vk::Fence());
     // Device.waitIdle();
+
+    Queue->storedExecutions.push_back(std::move(Execution));
 
     if (event)
       *event = new _pi_timeline_event(Queue->Context_,
@@ -2195,13 +2263,74 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
   return ret;
 }
 
-NOT_IMPL(pi_result VLK(piEnqueueMemBufferReadRect),
-         (pi_queue command_queue, pi_mem Buffer, pi_bool blocking_read,
-          const size_t *buffer_offset, const size_t *host_offset,
-          const size_t *region, size_t buffer_row_pitch,
-          size_t buffer_slice_pitch, size_t host_row_pitch,
-          size_t host_slice_pitch, void *ptr, pi_uint32 num_events_in_wait_list,
-          const pi_event *event_wait_list, pi_event *event))
+pi_result VLK(piEnqueueMemBufferReadRect)(
+    pi_queue command_queue, pi_mem memobj, pi_bool blocking_read,
+    const size_t *buffer_offset, const size_t *host_offset,
+    const size_t *region, size_t buffer_row_pitch, size_t buffer_slice_pitch,
+    size_t host_row_pitch, size_t host_slice_pitch, void *ptr,
+    pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
+    pi_event *event) {
+
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
+
+  pi_result ret = PI_SUCCESS;
+
+  // Due to openCL specification
+  // https://www.khronos.org/registry/OpenCL/sdk/2.2/docs/man/html/clEnqueueReadBufferRect.html
+  if (buffer_row_pitch == 0)
+    buffer_row_pitch = region[0];
+  if (buffer_slice_pitch == 0)
+    buffer_slice_pitch = region[1] * buffer_row_pitch;
+  if (host_row_pitch == 0)
+    host_row_pitch = region[0];
+  if (host_slice_pitch == 0)
+    host_slice_pitch = region[1] * host_row_pitch;
+
+  try {
+    // FIXME: Add support for nonblocking
+    //if (blocking_read) {
+      // FIXME: Copy only needed things from Device
+      memobj->copyDtoHblocking();
+      char *HostPtr = reinterpret_cast<char *>(ptr);
+      char *BufferPtr =
+          reinterpret_cast<char *>(memobj->Context_->Device.mapMemory(
+              memobj->HostMemory, 0, VK_WHOLE_SIZE));
+      for (size_t Slice = 0; Slice < region[2]; Slice++) {
+        for (size_t Row = 0; Row < region[1]; Row++) {
+          if (std::memcpy(
+                  HostPtr + (host_offset[2] + Slice) * host_slice_pitch +
+                      (host_offset[1] + Row) * host_row_pitch + host_offset[0],
+                  BufferPtr + (buffer_offset[2] + Slice) * buffer_slice_pitch +
+                      (buffer_offset[1] + Row) * buffer_row_pitch +
+                      buffer_offset[0],
+                  region[0]) !=
+              HostPtr + (host_offset[2] + Slice) * host_slice_pitch +
+                  (host_offset[1] + Row) * host_row_pitch + host_offset[0]) {
+            ret = PI_INVALID_MEM_OBJECT;
+          }
+        }
+      }
+      memobj->Context_->Device.unmapMemory(memobj->HostMemory);
+      if (event)
+        *event = new _pi_empty_event();
+  /*} else {
+    memobj->copyDtoH();
+    std::thread(localCopy, memobj, ptr, size, offset,
+                memobj->Context_->lastTimelineValue)
+        .detach();
+    memobj->Context_->lastTimelineValue++;*/
+    /*if (event)
+      *event = new _pi_timeline_event(memobj->Context_,
+                                      memobj->Context_->Timeline.get(),
+                                      memobj->Context_->lastTimelineValue);*/
+  //}
+}
+catch (vk::SystemError const &Err) {
+  return mapVulkanErrToCLErr(Err);
+}
+
+return ret;
+}
 
 pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                                        pi_bool blocking_write, size_t offset,
@@ -2222,7 +2351,7 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
       SubmitInfo = {
           vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
                          &command_queue->Context_->Timeline.get()),
-                    vk::TimelineSemaphoreSubmitInfo(
+          vk::TimelineSemaphoreSubmitInfo(
               0, nullptr, 1,
               &command_queue->Context_->lastTimelineValue)};
   /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
@@ -2427,7 +2556,7 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  const pi_event *event_wait_list,
                                  pi_event *event) {
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
-  
+
   if (!memobj->HostPtr)
     memobj->Context_->Device.unmapMemory(memobj->HostMemory);
 
@@ -2436,7 +2565,7 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
 
     memobj->LastMapFlags = 0ul;
 
-    if (memobj->HostPtr) 
+    if (memobj->HostPtr)
     {
       // If it is a "fake" host pointer, do writing into device buffer directly
       // alternative would be FakeHostPtr -> HostMem -> DeviceMem
@@ -2447,7 +2576,7 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
           num_events_in_wait_list, event_wait_list, event);
     }
     // In this case the memory is already written in Host Memory
-    // simple asynchronously copy to device 
+    // simple asynchronously copy to device
     memobj->copyHtoD();
 
     auto Event = std::make_unique<_pi_timeline_event>(
