@@ -79,9 +79,7 @@ struct _pi_context : public _ref_counter {
   uint64_t lastTimelineValue = 1;
   pi_device PhDevice_;
 
-  ~_pi_context() {
-
-  }
+  ~_pi_context() {}
 };
 
 struct execution {
