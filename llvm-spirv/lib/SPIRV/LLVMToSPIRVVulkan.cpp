@@ -144,20 +144,20 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   if (oclIsKernel(F)) {
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
     // FIXME: Think about a different location for this only be done once
-    static bool Once = false;
-    if (!Once) {
-      std::vector<SPIRVValue *> LocalSizeElements{3};
-      auto UIntType = BM->addIntegerType(32);
-      for (size_t i = 0; i < 3; i++) {
-        LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
-        LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
-      }
-      auto LocalSize =
-          BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
-      LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize,
-                                               BuiltInWorkgroupSize));
-      Once = true;
-    }
+    //static bool Once = false;
+    //if (!Once) {
+    //  std::vector<SPIRVValue *> LocalSizeElements{3};
+    //  auto UIntType = BM->addIntegerType(32);
+    //  for (size_t i = 0; i < 3; i++) {
+    //    LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+    //    LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+    //  }
+    //  auto LocalSize =
+    //      BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
+    //  LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize,
+    //                                           BuiltInWorkgroupSize));
+    //  Once = true;
+    //}
   }
   // Vulkan no linkage decorations
   // else if (F->getLinkage() != GlobalValue::InternalLinkage)
@@ -209,6 +209,26 @@ bool LLVMToSPIRVVulkan::transAddressingMode() {
   // BM->setMemoryModel(MemoryModelGLSL450);
   // BM->setSPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_3));
   return true;
+}
+
+bool LLVMToSPIRVVulkan::transExecutionMode() {
+  // If Workgroup Size is not needed in shader execution
+  // it will not be generated. If not generated 
+  // generate it here, so passing workgroup size is possible
+  if (!WorkgroupSizeAvailable) {
+    std::vector<SPIRVValue *> LocalSizeElements{3};
+    auto UIntType = BM->addIntegerType(32);
+    for (size_t i = 0; i < 3; i++) {
+      LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+      LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+    }
+    auto LocalSize =
+        BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
+    LocalSize->addDecorate(
+        new SPIRVDecorate(DecorationBuiltIn, LocalSize, BuiltInWorkgroupSize));
+  }
+
+  return LLVMToSPIRV::transExecutionMode();
 }
 
 SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
@@ -335,6 +355,28 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   }
 
   if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
+
+    // Special case for BuiltIn variable
+    spv::BuiltIn Builtin = spv::BuiltInPosition;
+    if (GV->hasName() && getSPIRVBuiltin(GV->getName().str(), Builtin)) {
+      // Find Special BuiltinVariable
+      if (Builtin == spv::BuiltInWorkgroupSize) {
+        WorkgroupSizeAvailable = true;
+        std::vector<SPIRVValue *> LocalSizeElements{3};
+        auto UIntType = BM->addIntegerType(32);
+        for (size_t i = 0; i < 3; i++) {
+          LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+          LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+        }
+        auto LocalSize =
+            BM->addSpecCompositeConstant(transType(GV->getType()->getElementType()), LocalSizeElements);
+        LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize, Builtin));
+        mapValue(V, LocalSize);
+        return LocalSize;
+      }
+    }
+
+    // Descriptor & Binding Decoration for input structures needed
     auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(V, BB);
     const char *ArgName = "_arg_";
     auto Pos = GV->getName().find(ArgName);
@@ -468,6 +510,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   if (LoadInst *LD = dyn_cast<LoadInst>(V)) {
     auto TargetTy = LD->getType();
     auto Source = LD->getPointerOperand();
+    if (isBuiltIn(Source, spv::BuiltInWorkgroupSize)) {
+      // Is already loaded, do NOOP
+      return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
+    }
     if (auto GEP = dyn_cast<GEPOperator>(Source)) {
       auto SourceBaseTy =
           GEP->getPointerOperand()->getType()->getPointerElementType();
@@ -876,6 +922,41 @@ bool LLVMToSPIRVVulkan::isSkippable(Value *V, SPIRVBasicBlock *BB,
     return false;
   }
   return false;
+}
+
+bool LLVMToSPIRVVulkan::isBuiltIn(Value *V, spv::BuiltIn builtIn) {
+  spv::BuiltIn Builtin = spv::BuiltInPosition;
+  if (!V->hasName() || !getSPIRVBuiltin(V->getName().str(), Builtin)) {
+    return false;
+  }
+  return Builtin == builtIn;
+}
+
+void LLVMToSPIRVVulkan::collectInputOutputVariables(SPIRVFunction *SF,
+                                                    Function *F) {
+  for (auto &GV : M->globals()) {
+    const auto AS = GV.getAddressSpace();
+    if (AS != SPIRAS_Input && AS != SPIRAS_Output)
+      continue;
+
+    // Exception added for WorkgroupSize, since it 
+    // will be OpSpecConstant instead of OpVariable
+    if (isBuiltIn(&GV, spv::BuiltInWorkgroupSize))
+      continue;
+
+    std::unordered_set<const Function *> Funcs;
+
+    for (const auto &U : GV.uses()) {
+      const Instruction *Inst = dyn_cast<Instruction>(U.getUser());
+      if (!Inst)
+        continue;
+      Funcs.insert(Inst->getFunction());
+    }
+
+    if (isAnyFunctionReachableFromFunction(F, Funcs)) {
+      SF->addVariable(ValueMap[&GV]);
+    }
+  }
 }
 
 } // Namespace SPIRV

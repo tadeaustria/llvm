@@ -74,6 +74,7 @@ public:
     AU.addRequired<PostDominatorTreeWrapperPass>();
   }*/
 
+  bool transExecutionMode() override;
   SPIRVType *transType(Type *T) override;
 
   bool transAddressingMode() override;
@@ -96,15 +97,18 @@ protected:
 
   SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
                                           SPIRVBasicBlock *BB) override;
+  void collectInputOutputVariables(SPIRVFunction *SF, Function *F) override;
 
   bool isSkippable(Value *V, SPIRVBasicBlock *BB, SPIRVValue **Alternative);
   SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+  bool isBuiltIn(Value *V, spv::BuiltIn builtIn);
 
   bool InParameterStructure = false;
 
   SPIRVValue *transOrigin(Value *V, SPIRVBasicBlock *BB);
 
   std::vector<Value *> RuntimeArrayArguments;
+  bool WorkgroupSizeAvailable = false;
   SPIRVType *WorkgroupSizeType = nullptr;
   llvm::PostDominatorTree DominatorTree;
 };
