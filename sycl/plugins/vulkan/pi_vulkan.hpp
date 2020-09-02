@@ -180,35 +180,20 @@ struct _pi_mem : public _ref_counter {
   }
 };
 
-struct kernelInfoCache {
-  std::string KernelName;
-  uint32_t BaseArguments = 0;
-  uint32_t MaxArguments = 0;
-
-  kernelInfoCache(std::string kernelName, uint32_t baseArguments = 0)
-      : KernelName(kernelName), BaseArguments(baseArguments) {}
-};
-
 struct _pi_program : public _ref_counter {
   vk::ShaderModule Module;
   pi_context Context_;
   const char *Source_;
   size_t SourceLength_;
 
-  std::vector<kernelInfoCache> KernelCache;
-
   _pi_program(vk::ShaderModule &&Module_, pi_context Context,
               const char *Source, size_t SourceLength)
       : _ref_counter{1}, Module(Module_), Context_(Context), Source_(Source),
-        SourceLength_(SourceLength), KernelCache() {
+        SourceLength_(SourceLength) {
     if (Context_)
       VLK(piContextRetain)(Context_);
   }
-
-  kernelInfoCache *find(const char *kernelName);
-  void addKernel(const char *kernelName);
-  void addKernelArgument(const char *kernelName, pi_uint32 idx);
-
+  
   ~_pi_program() {
     if (Context_)
       VLK(piContextRelease)(Context_);
@@ -216,10 +201,9 @@ struct _pi_program : public _ref_counter {
 };
 
 struct _pi_kernel : public _ref_counter {
-  // vk::ShaderModule module;
   const char *Name;
+  std::map<pi_uint32, size_t> ArgIndexToInternalIndex;
   std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
-  // std::vector<pi_mem> Arguments;
 
   std::map<pi_uint32, pi_mem> Arguments;
 
@@ -237,6 +221,9 @@ struct _pi_kernel : public _ref_counter {
       VLK(piMemRelease)(args.second);
     }
   }
+
+  size_t getInternalIndex(pi_uint32 ArgIdx);
+  pi_uint32 getArgumentIndex(size_t IntIdx) const;
 
   pi_result addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj);
   pi_result addArgument(pi_uint32 ArgIndex, size_t arg_size,

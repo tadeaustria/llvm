@@ -269,39 +269,6 @@ void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   }
 }
 
-kernelInfoCache *_pi_program::find(const char *kernelName) {
-  auto Found = std::find_if(
-      KernelCache.begin(), KernelCache.end(), [kernelName](auto val) {
-        return strcmp(val.KernelName.c_str(), kernelName) == 0;
-      });
-  if (Found != KernelCache.end())
-    return &*Found;
-  return nullptr;
-}
-
-void _pi_program::addKernel(const char *kernelName) {
-  for (auto Cache : KernelCache) {
-    if (find(kernelName) != nullptr) {
-      return;
-    }
-  }
-  if (KernelCache.empty()) {
-    KernelCache.emplace_back(kernelName, 0);
-  } else {
-    KernelCache.emplace_back(kernelName,
-                             KernelCache[KernelCache.size() - 1].MaxArguments);
-  }
-}
-
-void _pi_program::addKernelArgument(const char *kernelName, pi_uint32 idx) {
-  auto KernelInfo = find(kernelName);
-  if (KernelInfo == nullptr) {
-    return;
-  }
-  KernelInfo->MaxArguments =
-      std::max(KernelInfo->MaxArguments, KernelInfo->BaseArguments + idx + 1);
-}
-
 void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
                uint64_t waitValue) {
   vk::DispatchLoaderDynamic dldid(
@@ -449,63 +416,73 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
                                  pi_event *event);
 }
 
+size_t _pi_kernel::getInternalIndex(pi_uint32 ArgIdx) {
+  auto InternalIndex = ArgIndexToInternalIndex.find(ArgIdx);
+  if (InternalIndex != ArgIndexToInternalIndex.end())
+    return InternalIndex->second;
+  return ArgIndexToInternalIndex[ArgIdx] = ArgIndexToInternalIndex.size();
+}
+
+pi_uint32 _pi_kernel::getArgumentIndex(size_t IntIdx) const {
+  for (auto it : ArgIndexToInternalIndex) {
+    if (it.second == IntIdx)
+      return it.first;
+  }
+  return -1;
+}
+
 pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj) {
 
-  if (DescriptorSetLayoutBinding.size() <= ArgIndex) {
-    DescriptorSetLayoutBinding.resize(ArgIndex + 1);
+  auto InternalIndex = getInternalIndex(ArgIndex);
+
+  if (DescriptorSetLayoutBinding.size() <= InternalIndex) {
+    DescriptorSetLayoutBinding.resize(InternalIndex + 1);
   }
 
-  auto kernelInfo = Program_->find(this->Name);
-  if (kernelInfo) {
-    DescriptorSetLayoutBinding[ArgIndex] = {
-        kernelInfo->BaseArguments + ArgIndex,
-        vk::DescriptorType::eStorageBuffer, 1,
-        vk::ShaderStageFlagBits::eCompute};
-  } else {
-    DescriptorSetLayoutBinding[ArgIndex] = {
-        ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
-        vk::ShaderStageFlagBits::eCompute};
-  }
+  DescriptorSetLayoutBinding[InternalIndex] = {
+      ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
+      vk::ShaderStageFlagBits::eCompute};
 
-  Arguments[ArgIndex] = *Memobj;
-  VLK(piMemRetain)(Arguments[ArgIndex]);
+  Arguments[InternalIndex] = *Memobj;
+  VLK(piMemRetain)(Arguments[InternalIndex]);
 
-  Program_->addKernelArgument(this->Name, ArgIndex);
   return PI_SUCCESS;
 }
 
 pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
                                   const void *arg_value) {
-  auto vec = Arguments.find(ArgIndex);
+
+  auto InternalIndex = getInternalIndex(ArgIndex);
+
+  auto vec = Arguments.find(InternalIndex);
   if (vec == Arguments.end()) {
 
-    if (DescriptorSetLayoutBinding.size() <= ArgIndex)
-      DescriptorSetLayoutBinding.resize(ArgIndex + 1);
-    auto kernelInfo = Program_->find(this->Name);
-    if (kernelInfo) {
-      DescriptorSetLayoutBinding[ArgIndex] = {
-          kernelInfo->BaseArguments + ArgIndex,
-          vk::DescriptorType::eStorageBuffer, 1,
-          vk::ShaderStageFlagBits::eCompute};
-    } else {
-      DescriptorSetLayoutBinding[ArgIndex] = {
+    if (DescriptorSetLayoutBinding.size() <= InternalIndex)
+      DescriptorSetLayoutBinding.resize(InternalIndex + 1);
+    //auto kernelInfo = Program_->find(this->Name);
+    //if (kernelInfo) {
+    //  DescriptorSetLayoutBinding[InternalIndex] = {
+    //      kernelInfo->BaseArguments + ArgIndex,
+    //      vk::DescriptorType::eStorageBuffer, 1,
+    //      vk::ShaderStageFlagBits::eCompute};
+    //} else {
+      DescriptorSetLayoutBinding[InternalIndex] = {
           ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
           vk::ShaderStageFlagBits::eCompute};
-    }
+    //}
 
     pi_mem mem;
     VLK(piMemBufferCreate)
     (Program_->Context_, PI_MEM_FLAGS_HOST_PTR_COPY, arg_size,
      const_cast<void *>(arg_value), &mem);
 
-    Arguments[ArgIndex] = mem;
+    Arguments[InternalIndex] = mem;
   } else {
     VLK(piMemRelease)(vec->second);
     VLK(piMemBufferCreate)
     (Program_->Context_, PI_MEM_FLAGS_HOST_PTR_COPY, arg_size,
      const_cast<void *>(arg_value), &vec->second);
   }
-  Program_->addKernelArgument(this->Name, ArgIndex);
   return PI_SUCCESS;
 }
 
@@ -573,7 +550,7 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           std::vector<const char *> List = {
               //"VK_LAYER_LUNARG_vktrace",
               //"VK_LAYER_LUNARG_api_dump",
-              //"VK_LAYER_KHRONOS_validation"
+              "VK_LAYER_KHRONOS_validation"
           };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
@@ -1826,7 +1803,6 @@ pi_result VLK(piextProgramCreateWithNativeHandle)(pi_native_handle nativeHandle,
 pi_result VLK(piKernelCreate)(pi_program program, const char *kernel_name,
                               pi_kernel *ret_kernel) {
   *ret_kernel = new _pi_kernel(kernel_name, program);
-  program->addKernel(kernel_name);
   return PI_SUCCESS;
 }
 
@@ -2136,13 +2112,12 @@ pi_result VLK(piEnqueueKernelLaunch)(
     std::vector<std::unique_ptr<vk::DescriptorBufferInfo>>
         DescriptorBufferInfos{kernel->Arguments.size()};
 
-    auto KernelBaseInfo = kernel->Program_->find(kernel->Name);
     for (size_t i = 0; i < kernel->Arguments.size(); i++) {
       DescriptorBufferInfos[i] = std::make_unique<vk::DescriptorBufferInfo>(
           kernel->Arguments[i]->DeviceBuffer, 0, VK_WHOLE_SIZE);
       WriteSets[i] = vk::WriteDescriptorSet{
           Execution->DescriptorSet.get(),
-          static_cast<uint32_t>(i + KernelBaseInfo->BaseArguments),
+          static_cast<uint32_t>(kernel->getArgumentIndex(i)),
           0,
           1,
           vk::DescriptorType::eStorageBuffer,
