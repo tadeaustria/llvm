@@ -222,6 +222,11 @@ bool LLVMToSPIRVVulkan::transExecutionMode() {
       LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
       LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
     }
+    if (!WorkgroupSizeType) {
+      // Fallback if there is not already a Vector 3 Type
+      // 2 equally types is not allowed...
+      WorkgroupSizeType = BM->addVectorType(UIntType, 3u);
+    }
     auto LocalSize =
         BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
     LocalSize->addDecorate(
