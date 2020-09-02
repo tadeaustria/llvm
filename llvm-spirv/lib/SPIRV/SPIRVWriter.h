@@ -122,7 +122,7 @@ public:
   // Translate LLVM module to SPIR-V module.
   // Returns true if succeeds.
   bool translate();
-  bool transExecutionMode();
+  virtual bool transExecutionMode();
   void transFPContract();
   SPIRVValue *transConstant(Value *V);
   SPIRVValue *transValue(Value *V, SPIRVBasicBlock *BB,
@@ -215,7 +215,7 @@ protected:
   bool isAnyFunctionReachableFromFunction(
       const Function *FS,
       const std::unordered_set<const Function *> Funcs) const;
-  void collectInputOutputVariables(SPIRVFunction *SF, Function *F);
+  virtual void collectInputOutputVariables(SPIRVFunction *SF, Function *F);
 };
 
 } // namespace SPIRV

@@ -342,6 +342,7 @@ template <> inline void SPIRVMap<Capability, std::string>::init() {
   add(CapabilityStorageImageWriteWithoutFormat,
       "StorageImageWriteWithoutFormat");
   add(CapabilityMultiViewport, "MultiViewport");
+  add(CapabilityVariablePointersStorageBuffer, "VariablePointersStorageBuffer");
   add(CapabilitySubgroupDispatch, "SubgroupDispatch");
   add(CapabilityNamedBarrier, "NamedBarrier");
   add(CapabilityPipeStorage, "PipeStorage");
