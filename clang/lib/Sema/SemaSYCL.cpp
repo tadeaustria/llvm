@@ -5072,6 +5072,7 @@ void SYCLIntegrationHeader::emit(raw_ostream &O) {
 
   O << "// Specializations of KernelInfo for kernel function types:\n";
   unsigned CurStart = 0;
+  int ArgumentOffset = 0;
 
   for (const KernelDesc &K : KernelDescs) {
     const size_t N = K.Params.size();
@@ -5103,6 +5104,18 @@ void SYCLIntegrationHeader::emit(raw_ostream &O) {
     O << "  __SYCL_DLL_LOCAL\n";
     O << "  static constexpr bool callsThisItem() { return ";
     O << K.CallsThisItem << "; }\n";
+    O << "  static constexpr size_t getOffset() { return " << ArgumentOffset
+      << "; }\n";
+    // Increment number of arguments, needed in Vulkan plugin
+    for (auto Param : K.Params) {
+      switch (Param.Kind) {
+      case (KernelParamKind::kind_accessor):
+        ArgumentOffset += 4; // number of parameters of __init method
+        break;
+      default:
+        ArgumentOffset++;
+      }
+    }
     O << "};\n";
     CurStart += N;
   }
