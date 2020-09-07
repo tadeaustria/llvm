@@ -2394,13 +2394,65 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
   return PI_SUCCESS;
 }
 
-NOT_IMPL(pi_result VLK(piEnqueueMemBufferCopyRect),
-         (pi_queue command_queue, pi_mem src_buffer, pi_mem dst_buffer,
-          const size_t *src_origin, const size_t *dst_origin,
-          const size_t *region, size_t src_row_pitch, size_t src_slice_pitch,
-          size_t dst_row_pitch, size_t dst_slice_pitch,
-          pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
-          pi_event *event))
+pi_result VLK(piEnqueueMemBufferCopyRect)
+(pi_queue command_queue, pi_mem src_buffer, pi_mem dst_buffer,
+  const size_t *src_origin, const size_t *dst_origin,
+  const size_t *region, size_t src_row_pitch, size_t src_slice_pitch,
+  size_t dst_row_pitch, size_t dst_slice_pitch,
+  pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
+  pi_event *event) {
+
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
+
+  // Due to openCL specification
+  // https://www.khronos.org/registry/OpenCL/sdk/2.2/docs/man/html/clEnqueueCopyBufferRect.html
+  if (src_row_pitch == 0)
+    src_row_pitch = region[0];
+  if (src_slice_pitch == 0)
+    src_slice_pitch = region[1] * src_row_pitch;
+  if (dst_row_pitch == 0)
+    dst_row_pitch = region[0];
+  if (dst_slice_pitch == 0)
+    dst_slice_pitch = region[1] * dst_row_pitch;
+
+  std::vector<vk::BufferCopy> Range;
+
+  for (size_t Slice = 0; Slice < region[2]; Slice++) {
+    for (size_t Row = 0; Row < region[1]; Row++) {
+      Range.emplace_back(
+          (src_origin[2] + Slice) * src_slice_pitch +
+              (src_origin[1] + Row) * src_row_pitch + src_origin[0],
+          (dst_origin[2] + Slice) * dst_slice_pitch +
+              (dst_origin[1] + Row) * dst_row_pitch + dst_origin[0],
+          region[0]);
+    }
+  }
+
+  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+  command_queue->CmdBuffer.copyBuffer(src_buffer->DeviceBuffer,
+                                      dst_buffer->DeviceBuffer, Range);
+  command_queue->CmdBuffer.end();
+
+  command_queue->Context_->lastTimelineValue++;
+  vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+      SubmitInfo = {
+          vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
+                         &command_queue->Context_->Timeline.get()),
+          vk::TimelineSemaphoreSubmitInfo(
+              0, nullptr, 1, &command_queue->Context_->lastTimelineValue)};
+  /*vk::SubmitInfo SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer,
+                            0, nullptr);*/
+
+  command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
+                              vk::Fence());
+  auto Event = std::make_unique<_pi_timeline_event>(
+      command_queue->Context_, command_queue->Context_->Timeline.get(),
+      command_queue->Context_->lastTimelineValue);
+  if (event)
+    *event = Event.release();
+  return PI_SUCCESS;
+}
 
 pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
                                       const void *pattern, size_t pattern_size,
