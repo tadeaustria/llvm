@@ -490,7 +490,9 @@ extern "C" {
 
 #define NOT_IMPL(functionname, parameters)                                     \
   functionname parameters {                                                    \
-    cl::sycl::detail::pi::die("functionname not implemented");                 \
+    std::stringstream ss;                                                      \
+    ss << #functionname << " not implemented";                                 \
+    cl::sycl::detail::pi::die(ss.str().c_str());                               \
     return {};                                                                 \
   }
 
@@ -550,7 +552,7 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
           std::vector<const char *> List = {
               //"VK_LAYER_LUNARG_vktrace",
               //"VK_LAYER_LUNARG_api_dump",
-              "VK_LAYER_KHRONOS_validation"
+              //"VK_LAYER_KHRONOS_validation"
           };
           vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo,
                                                     List.size(), List.data());
@@ -2368,8 +2370,8 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
 
   command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
       vk::CommandBufferUsageFlagBits::eSimultaneousUse));
-  command_queue->CmdBuffer.copyBuffer(src_buffer->HostBuffer,
-                                      dst_buffer->HostBuffer, Range);
+  command_queue->CmdBuffer.copyBuffer(src_buffer->DeviceBuffer,
+                                      dst_buffer->DeviceBuffer, Range);
   command_queue->CmdBuffer.end();
 
   command_queue->Context_->lastTimelineValue++;
