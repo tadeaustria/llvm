@@ -681,6 +681,10 @@ static Optional<bool> getKnownSign(Value *Op, Instruction *CxtI,
 Instruction *InstCombinerImpl::visitCallInst(CallInst &CI) {
   // Don't try to simplify calls without uses. It will not do anything useful,
   // but will result in the following folds being skipped.
+  
+  if (VulkanFriendly)
+    return nullptr;
+
   if (!CI.use_empty())
     if (Value *V = SimplifyCall(&CI, SQ.getWithInstruction(&CI)))
       return replaceInstUsesWith(CI, V);

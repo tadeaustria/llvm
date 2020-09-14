@@ -154,6 +154,10 @@ static cl::opt<unsigned>
 MaxArraySize("instcombine-maxarray-size", cl::init(1024),
              cl::desc("Maximum array size considered when doing a combine"));
 
+static cl::opt<bool>
+VulkanFriendly("instcombine-spirv-vulkan-friendly", cl::init(true), //FIXME: Default to false and link with triple correctly
+               cl::desc("Optimizations will be Vulkan friendly"));
+
 // FIXME: Remove this flag when it is no longer necessary to convert
 // llvm.dbg.declare to avoid inaccurate debug info. Setting this to false
 // increases variable availability at the cost of accuracy. Variables that
@@ -3923,6 +3927,7 @@ static bool combineInstructionsOverFunction(
     InstCombinerImpl IC(Worklist, Builder, F.hasMinSize(), AA, AC, TLI, TTI, DT,
                         ORE, BFI, PSI, DL, LI);
     IC.MaxArraySizeForCombine = MaxArraySize;
+    IC.VulkanFriendly         = VulkanFriendly;
 
     if (!IC.run())
       break;

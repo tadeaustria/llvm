@@ -50,6 +50,9 @@ public:
   /// Maximum size of array considered when transforming.
   uint64_t MaxArraySizeForCombine = 0;
 
+  /// Maximum size of array considered when transforming.
+  bool VulkanFriendly = false;
+
   /// An IRBuilder that automatically inserts new instructions into the
   /// worklist.
   using BuilderTy = IRBuilder<TargetFolder, IRBuilderCallbackInserter>;
