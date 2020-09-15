@@ -104,48 +104,70 @@ static pi_result getExtFuncFromContext(pi_context context, T *fptr) {
   return cast<pi_result>(ret_err);
 }
 
-/// Enables indirect access of pointers in kernels.
-/// Necessary to avoid telling CL about every pointer that might be used.
-///
-/// \param kernel is the kernel to be launched
-static pi_result USMSetIndirectAccess(pi_kernel kernel) {
-  // We test that each alloc type is supported before we actually try to
-  // set KernelExecInfo.
-  cl_bool TrueVal = CL_TRUE;
-  clHostMemAllocINTEL_fn HFunc = nullptr;
-  clSharedMemAllocINTEL_fn SFunc = nullptr;
-  clDeviceMemAllocINTEL_fn DFunc = nullptr;
-  cl_context CLContext;
-  cl_int CLErr = clGetKernelInfo(cast<cl_kernel>(kernel), CL_KERNEL_CONTEXT,
-                                 sizeof(cl_context), &CLContext, nullptr);
-  if (CLErr != CL_SUCCESS) {
-    return cast<pi_result>(CLErr);
+namespace {
+/// \cond NODOXY
+template <typename T, typename Assign>
+pi_result getInfoImpl(size_t param_value_size, void *param_value,
+                      size_t *param_value_size_ret, T value, size_t value_size,
+                      Assign &&assign_func) {
+
+  if (param_value != nullptr) {
+
+    if (param_value_size < value_size) {
+      return PI_INVALID_VALUE;
+    }
+
+    assign_func(param_value, value, value_size);
   }
 
-  getExtFuncFromContext<clHostMemAllocName, clHostMemAllocINTEL_fn>(
-      cast<pi_context>(CLContext), &HFunc);
-  if (HFunc) {
-    clSetKernelExecInfo(cast<cl_kernel>(kernel),
-                        CL_KERNEL_EXEC_INFO_INDIRECT_HOST_ACCESS_INTEL,
-                        sizeof(cl_bool), &TrueVal);
+  if (param_value_size_ret != nullptr) {
+    *param_value_size_ret = value_size;
   }
 
-  getExtFuncFromContext<clDeviceMemAllocName, clDeviceMemAllocINTEL_fn>(
-      cast<pi_context>(CLContext), &DFunc);
-  if (DFunc) {
-    clSetKernelExecInfo(cast<cl_kernel>(kernel),
-                        CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL,
-                        sizeof(cl_bool), &TrueVal);
-  }
-
-  getExtFuncFromContext<clSharedMemAllocName, clSharedMemAllocINTEL_fn>(
-      cast<pi_context>(CLContext), &SFunc);
-  if (SFunc) {
-    clSetKernelExecInfo(cast<cl_kernel>(kernel),
-                        CL_KERNEL_EXEC_INFO_INDIRECT_SHARED_ACCESS_INTEL,
-                        sizeof(cl_bool), &TrueVal);
-  }
   return PI_SUCCESS;
+}
+
+template <typename T>
+pi_result getInfo(size_t param_value_size, void *param_value,
+                  size_t *param_value_size_ret, T value) {
+
+  auto assignment = [](void *param_value, T value, size_t value_size) {
+    *static_cast<T *>(param_value) = value;
+  };
+
+  return getInfoImpl(param_value_size, param_value, param_value_size_ret, value,
+                     sizeof(T), assignment);
+}
+
+template <typename T>
+pi_result getInfoArray(size_t array_length, size_t param_value_size,
+                       void *param_value, size_t *param_value_size_ret,
+                       T *value) {
+  return getInfoImpl(param_value_size, param_value, param_value_size_ret, value,
+                     array_length * sizeof(T), memcpy);
+}
+
+template <>
+pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
+                                size_t *param_value_size_ret,
+                                const char *value) {
+  return getInfoArray(strlen(value) + 1, param_value_size, param_value,
+                      param_value_size_ret, value);
+}
+
+/// \endcond
+
+} // anonymous namespace
+
+template <typename... Args>
+void mySaveSnprintf(size_t param_value_size, void *param_value,
+                    size_t *param_value_size_ret, const char *format,
+                    Args... args) {
+  if (param_value) {
+    snprintf(cast<char *>(param_value), param_value_size, format, args...);
+  } else if (param_value_size_ret) {
+    *param_value_size_ret = snprintf(nullptr, 0, format, args...) + 1;
+  }
 }
 
 pi_result mapVulkanErrToCLErr(vk::Result result) {
@@ -269,6 +291,31 @@ void _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   }
 }
 
+pi_result _pi_timeline_event::getProfilingInfo(pi_profiling_info param_name,
+                                               size_t param_value_size,
+                                               void *param_value,
+                                               size_t *param_value_size_ret) {
+  uint32_t QueryCounter;
+  uint32_t Timestamp;
+  switch (param_name) {
+  case PI_PROFILING_INFO_COMMAND_QUEUED:
+  case PI_PROFILING_INFO_COMMAND_SUBMIT:
+  case PI_PROFILING_INFO_COMMAND_START:
+    QueryCounter = 0;
+    break;
+  case PI_PROFILING_INFO_COMMAND_END:
+    QueryCounter = 1;
+    break;
+  default:
+    return PI_PROFILING_INFO_NOT_AVAILABLE;
+  }
+  Context->Device.getQueryPoolResults(
+      QueryPool.get(), QueryCounter, /*queryCount=*/1, sizeof(uint32_t),
+      &Timestamp, /*Stride=*/0, vk::QueryResultFlagBits::eWait);
+  return getInfo(param_value_size, param_value, param_value_size_ret,
+                 Timestamp);
+}
+
 void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
                uint64_t waitValue) {
   vk::DispatchLoaderDynamic dldid(
@@ -293,72 +340,6 @@ void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
       vk::SemaphoreSignalInfoKHR(memobj->Context_->Timeline.get(),
                                  waitValue + 1),
       dldid);
-}
-
-namespace {
-/// \cond NODOXY
-template <typename T, typename Assign>
-pi_result getInfoImpl(size_t param_value_size, void *param_value,
-                      size_t *param_value_size_ret, T value, size_t value_size,
-                      Assign &&assign_func) {
-
-  if (param_value != nullptr) {
-
-    if (param_value_size < value_size) {
-      return PI_INVALID_VALUE;
-    }
-
-    assign_func(param_value, value, value_size);
-  }
-
-  if (param_value_size_ret != nullptr) {
-    *param_value_size_ret = value_size;
-  }
-
-  return PI_SUCCESS;
-}
-
-template <typename T>
-pi_result getInfo(size_t param_value_size, void *param_value,
-                  size_t *param_value_size_ret, T value) {
-
-  auto assignment = [](void *param_value, T value, size_t value_size) {
-    *static_cast<T *>(param_value) = value;
-  };
-
-  return getInfoImpl(param_value_size, param_value, param_value_size_ret, value,
-                     sizeof(T), assignment);
-}
-
-template <typename T>
-pi_result getInfoArray(size_t array_length, size_t param_value_size,
-                       void *param_value, size_t *param_value_size_ret,
-                       T *value) {
-  return getInfoImpl(param_value_size, param_value, param_value_size_ret, value,
-                     array_length * sizeof(T), memcpy);
-}
-
-template <>
-pi_result getInfo<const char *>(size_t param_value_size, void *param_value,
-                                size_t *param_value_size_ret,
-                                const char *value) {
-  return getInfoArray(strlen(value) + 1, param_value_size, param_value,
-                      param_value_size_ret, value);
-}
-
-/// \endcond
-
-} // anonymous namespace
-
-template <typename... Args>
-void mySaveSnprintf(size_t param_value_size, void *param_value,
-                    size_t *param_value_size_ret, const char *format,
-                    Args... args) {
-  if (param_value) {
-    snprintf(cast<char *>(param_value), param_value_size, format, args...);
-  } else if (param_value_size_ret) {
-    *param_value_size_ret = snprintf(nullptr, 0, format, args...) + 1;
-  }
 }
 
 /// ------ Error handling, matching OpenCL plugin semantics.
@@ -459,16 +440,16 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
 
     if (DescriptorSetLayoutBinding.size() <= InternalIndex)
       DescriptorSetLayoutBinding.resize(InternalIndex + 1);
-    //auto kernelInfo = Program_->find(this->Name);
-    //if (kernelInfo) {
+    // auto kernelInfo = Program_->find(this->Name);
+    // if (kernelInfo) {
     //  DescriptorSetLayoutBinding[InternalIndex] = {
     //      kernelInfo->BaseArguments + ArgIndex,
     //      vk::DescriptorType::eStorageBuffer, 1,
     //      vk::ShaderStageFlagBits::eCompute};
     //} else {
-      DescriptorSetLayoutBinding[InternalIndex] = {
-          ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
-          vk::ShaderStageFlagBits::eCompute};
+    DescriptorSetLayoutBinding[InternalIndex] = {
+        ArgIndex, vk::DescriptorType::eStorageBuffer, 1,
+        vk::ShaderStageFlagBits::eCompute};
     //}
 
     pi_mem mem;
@@ -633,7 +614,9 @@ pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
   uint32_t SizeRelevantDevices =
       std::distance(DevicesVec.begin(), RelevantDevicesEnd);
   if (SizeRelevantDevices < 1) {
-    return PI_DEVICE_NOT_FOUND;
+    // Absorb the CL_DEVICE_NOT_FOUND and just return 0 in num_devices
+    // to satisfy test: 'basic_tests/diagnostics/device-check.cpp'
+    // return PI_DEVICE_NOT_FOUND;
   }
   if (devices) {
     uint32_t MaxEntries = std::min<uint32_t>(num_entries, SizeRelevantDevices);
@@ -817,7 +800,7 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
     // TODO: Which one exactly? minStorageBufferOffsetAlignment,
     // minUniformBufferOffsetAlignment or minStorageBufferOffsetAlignment
     return getInfo(param_value_size, param_value, param_value_size_ret,
-                   limits.minStorageBufferOffsetAlignment);
+                   pi_uint32(limits.minStorageBufferOffsetAlignment));
   }
   case PI_DEVICE_INFO_HALF_FP_CONFIG: {
     // TODO: copied from CUDA
@@ -1965,14 +1948,29 @@ pi_result VLK(piKernelSetExecInfo)(pi_kernel kernel,
 
 NOT_IMPL(pi_result VLK(piEventCreate),
          (pi_context context, pi_event *ret_event))
-NOT_IMPL(pi_result VLK(piEventGetInfo),
-         (pi_event event,
-          cl_event_info param_name, // TODO: untie from OpenCL
-          size_t param_value_size, void *param_value,
-          size_t *param_value_size_ret))
-NOT_IMPL(pi_result VLK(piEventGetProfilingInfo),
-         (pi_event event, pi_profiling_info param_name, size_t param_value_size,
-          void *param_value, size_t *param_value_size_ret))
+pi_result
+VLK(piEventGetInfo)(pi_event event,
+                    cl_event_info param_name, // TODO: untie from OpenCL
+                    size_t param_value_size, void *param_value,
+                    size_t *param_value_size_ret) {
+  switch (param_name) { 
+    case PI_EVENT_INFO_COMMAND_EXECUTION_STATUS:
+    // FIXME: Get the actual Status
+      return getInfo(param_value_size, param_value, param_value_size_ret,
+                     PI_EVENT_COMPLETE);
+  default:
+    PI_HANDLE_UNKNOWN_PARAM_NAME(param_name);
+    return PI_INVALID_VALUE;
+  }
+}
+pi_result VLK(piEventGetProfilingInfo)(pi_event event,
+                                       pi_profiling_info param_name,
+                                       size_t param_value_size,
+                                       void *param_value,
+                                       size_t *param_value_size_ret) {
+  return event->getProfilingInfo(param_name, param_value_size, param_value,
+                                 param_value_size_ret);
+}
 
 /// Wait for all given Events
 pi_result VLK(piEventsWait)(pi_uint32 num_events, const pi_event *event_list) {
@@ -2131,9 +2129,20 @@ pi_result VLK(piEnqueueKernelLaunch)(
     Device.updateDescriptorSets(WriteSets, nullptr);
 
     auto &CommandBuffer = Queue->CmdBuffer;
+    vk::UniqueQueryPool QueryPool(nullptr);
 
     CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
         vk::CommandBufferUsageFlagBits::eSimultaneousUse)));
+
+    if (Queue->isProfilingEnabled()) {
+      QueryPool =
+          Queue->Context_->Device.createQueryPoolUnique(vk::QueryPoolCreateInfo(
+              vk::QueryPoolCreateFlags(), vk::QueryType::eTimestamp, 2));
+      // Queue->Context_->Device.resetQueryPool(QueryPool.get(), 0, 2);
+      CommandBuffer.resetQueryPool(QueryPool.get(), 0, 2);
+      CommandBuffer.writeTimestamp(vk::PipelineStageFlagBits::eComputeShader,
+                                   QueryPool.get(), 0);
+    }
 
     CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute,
                                Execution->Pipeline.get());
@@ -2161,6 +2170,10 @@ pi_result VLK(piEnqueueKernelLaunch)(
         work_dim >= 2 ? global_work_size[1] / Values[1] : 1,
         work_dim >= 3 ? global_work_size[2] / Values[2] : 1);
 
+    if (Queue->isProfilingEnabled()) {
+      CommandBuffer.writeTimestamp(vk::PipelineStageFlagBits::eComputeShader,
+                                   QueryPool.get(), 1);
+    }
     CommandBuffer.end();
 
     Queue->Context_->lastTimelineValue++;
@@ -2180,9 +2193,9 @@ pi_result VLK(piEnqueueKernelLaunch)(
     Queue->storedExecutions.push_back(std::move(Execution));
 
     if (event)
-      *event = new _pi_timeline_event(Queue->Context_,
-                                      Queue->Context_->Timeline.get(),
-                                      Queue->Context_->lastTimelineValue);
+      *event = new _pi_timeline_event(
+          Queue->Context_, Queue->Context_->Timeline.get(),
+          Queue->Context_->lastTimelineValue, QueryPool);
 
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
@@ -2394,13 +2407,12 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
   return PI_SUCCESS;
 }
 
-pi_result VLK(piEnqueueMemBufferCopyRect)
-(pi_queue command_queue, pi_mem src_buffer, pi_mem dst_buffer,
-  const size_t *src_origin, const size_t *dst_origin,
-  const size_t *region, size_t src_row_pitch, size_t src_slice_pitch,
-  size_t dst_row_pitch, size_t dst_slice_pitch,
-  pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
-  pi_event *event) {
+pi_result VLK(piEnqueueMemBufferCopyRect)(
+    pi_queue command_queue, pi_mem src_buffer, pi_mem dst_buffer,
+    const size_t *src_origin, const size_t *dst_origin, const size_t *region,
+    size_t src_row_pitch, size_t src_slice_pitch, size_t dst_row_pitch,
+    size_t dst_slice_pitch, pi_uint32 num_events_in_wait_list,
+    const pi_event *event_wait_list, pi_event *event) {
 
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 

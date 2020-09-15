@@ -107,8 +107,9 @@ struct _pi_queue : public _ref_counter {
             pi_queue_properties properties)
       : _ref_counter{1}, Queue(queue_), CommandPool(std::move(pool)),
         CmdBuffer(buffer_), Context_(context), Properties_(properties) {
-    if (Context_)
+    if (Context_) {
       VLK(piContextRetain)(Context_);
+    }
   }
 
   ~_pi_queue() {
@@ -117,6 +118,9 @@ struct _pi_queue : public _ref_counter {
       VLK(piContextRelease)(Context_);
     }
   }
+
+  bool isProfilingEnabled() { return Properties_ & PI_QUEUE_PROFILING_ENABLE; }
+
 };
 
 struct _pi_mem : public _ref_counter {
@@ -235,20 +239,46 @@ struct _pi_event : public _ref_counter {
   virtual ~_pi_event(){};
 
   virtual void wait() = 0;
+
+  virtual pi_result getProfilingInfo(pi_profiling_info param_name,
+                                     size_t param_value_size, void *param_value,
+                                     size_t *param_value_size_ret) = 0;
 };
 
 struct _pi_empty_event : public _pi_event {
   void wait() override { return; }
+  pi_result getProfilingInfo(pi_profiling_info param_name,
+                             size_t param_value_size, void *param_value,
+                             size_t *param_value_size_ret) override {
+    return PI_PROFILING_INFO_NOT_AVAILABLE;
+  }
 };
 
 struct _pi_timeline_event : public _pi_event {
   _pi_timeline_event(pi_context context_, vk::Semaphore semaphore_,
                      uint64_t waitValue)
-      : Context(context_), Semaphore(semaphore_), Value(waitValue) {}
+      : Context(context_), Semaphore(semaphore_), Value(waitValue),
+        QueryPool(nullptr) {
+    if (Context)
+      VLK(piContextRetain)(Context);
+  }
+  _pi_timeline_event(pi_context context_, vk::Semaphore semaphore_,
+                     uint64_t waitValue, vk::UniqueQueryPool &pool)
+      : Context(context_), Semaphore(semaphore_), Value(waitValue), QueryPool(std::move(pool)) {
+    if (Context)
+      VLK(piContextRetain)(Context);   
+  }
+
+  ~_pi_timeline_event() {
+    QueryPool.reset(nullptr);
+    if (Context)
+      VLK(piContextRelease)(Context);
+  }
 
   pi_context Context;
   vk::Semaphore Semaphore;
   uint64_t Value;
+  vk::UniqueQueryPool QueryPool;
 
   void wait() override {
     vk::DispatchLoaderDynamic dldid(Context->PhDevice_->Platform_->Instance_,
@@ -259,6 +289,11 @@ struct _pi_timeline_event : public _pi_event {
                                  &Value),
         UINT64_MAX, dldid);
   }
+
+  pi_result getProfilingInfo(pi_profiling_info param_name,
+                             size_t param_value_size,
+                        void *param_value,
+                        size_t *param_value_size_ret) override;
 };
 
 template <typename T> struct _pi_event_impl : public _pi_event {
