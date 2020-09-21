@@ -2075,6 +2075,18 @@ pi_result VLK(piEnqueueKernelLaunch)(
         Values = {1u, 1u, 1u};
       }
     }
+
+    // Fillup to 3 Workgroupsize values
+    // needed that preceding values start with 103
+    while (Values.size() < 3)
+      Values.push_back(1u);
+
+    // Push GlobalOffset as Specification Constant
+    // Vulkan has no Builtin for that unfortunately
+    for (pi_uint32 i = 0; i < work_dim; i++) {
+      Values.push_back(global_work_offset[i] / Values[i]);
+    }
+
     for (size_t i = 0; i < Values.size(); i++) {
       Entries.emplace_back(100 + i, sizeof(uint32_t) * i, sizeof(uint32_t));
     }

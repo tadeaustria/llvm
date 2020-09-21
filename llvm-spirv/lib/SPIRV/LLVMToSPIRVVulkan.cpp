@@ -312,22 +312,51 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
   return LLVMToSPIRV::transType(T);
 }
 
-Value *backtrace(Value *V, std::vector<Value *> &indizes,
-                 std::vector<Value *> &origindizes) {
+/// This function traces back all GEP and Load commands
+/// and stacks the indices 
+Value *backtrace(Value *V, std::stack<std::vector<Value *>> &indices) {
   if (auto GEP = dyn_cast<GetElementPtrInst>(V)) {
-    if (GEP->getNumOperands() < 3) {
-      indizes.push_back(GEP->getOperand(1));
-    }
-    origindizes.clear();
+    indices.emplace();
     for (size_t i = 1; i < GEP->getNumOperands(); i++) {
-      origindizes.push_back(GEP->getOperand(i));
+      indices.top().push_back(GEP->getOperand(i));
     }
-    return backtrace(GEP->getPointerOperand(), indizes, origindizes);
+    return backtrace(GEP->getPointerOperand(), indices);
   } else if (auto Load = dyn_cast<LoadInst>(V)) {
-    return backtrace(Load->getPointerOperand(), indizes, origindizes);
+    return backtrace(Load->getPointerOperand(), indices);
   }
-
   return V;
+}
+
+/// This functions gives the origin of a GEP, where
+/// origin will be a pointer to the outermost datastructure.
+/// Indices will be relevant indices 
+Value *backtrace(Value *V, std::vector<Value *> &indices,
+                 std::vector<Value *> &origindices) {
+
+  std::stack<std::vector<Value *>> IndicesStack;
+  // Use helper to find all the indices used
+  Value *base = backtrace(V, IndicesStack);
+
+  // Traverse the indices backwards to find 
+  // the 2nd layer which will be the access within a runtime array
+  // Recall that the first index in a LLVM GEP is not a 
+  // navigation into the structure, it only resolves the given
+  // base pointer
+  // Seperate 2nd layer accesses from the rest
+  int level = 0;
+  while (!IndicesStack.empty()) {
+    auto &SomeIndices = IndicesStack.top();
+    for (auto Index : SomeIndices) {
+      if (level == 2) {
+        indices.push_back(Index);
+      } else {
+        origindices.push_back(Index);
+      }
+      level += SomeIndices.size() - 1;
+    }
+    IndicesStack.pop();
+  }
+  return base;
 }
 
 /// An instruction may use an instruction from another BB which has not been
@@ -365,7 +394,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     spv::BuiltIn Builtin = spv::BuiltInPosition;
     if (GV->hasName() && getSPIRVBuiltin(GV->getName().str(), Builtin)) {
       // Find Special BuiltinVariable
-      if (Builtin == spv::BuiltInWorkgroupSize) {
+      switch (Builtin) {
+      case spv::BuiltInWorkgroupSize: {
         WorkgroupSizeAvailable = true;
         std::vector<SPIRVValue *> LocalSizeElements{3};
         auto UIntType = BM->addIntegerType(32);
@@ -378,6 +408,21 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize, Builtin));
         mapValue(V, LocalSize);
         return LocalSize;
+      }
+      case spv::BuiltInGlobalOffset: {
+        std::vector<SPIRVValue *> GlobalOffsetElements{3};
+        auto UIntType = BM->addIntegerType(32);
+        for (size_t i = 0; i < 3; i++) {
+          GlobalOffsetElements[i] = BM->addSpecConstant(UIntType, 1);
+          GlobalOffsetElements[i]->addDecorate(DecorationSpecId, 103 + i);
+        }
+        auto GlobalOffset = BM->addSpecCompositeConstant(
+            transType(GV->getType()->getElementType()), GlobalOffsetElements);
+        mapValue(V, GlobalOffset);
+        return GlobalOffset;
+    }
+      default:
+        break;
       }
     }
 
@@ -427,43 +472,45 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       IndexGroupArrayMap[IndexGroup] = TransPointerOperand->getId();
     }
 
-    std::vector<Value *> OtherIndizes;
+    // Backtrace the origin of the GEP
+    std::vector<Value *> OtherIndices;
     std::vector<Value *> OrigIndices;
-    Value *originGEP = backtrace(GEP, OtherIndizes, OrigIndices);
-    // Get origin
-    /*while (GetElementPtrInst *prevprevGEP =
-               dyn_cast<GetElementPtrInst>(originGEP->getPointerOperand())) {
-      originGEP = prevprevGEP;
-    }*/
+    Value *originGEP = backtrace(GEP, OtherIndices, OrigIndices);
 
-    /*if (originGEP->getName().find("_arg_0") !=
-        std::string::npos) {*/
+    // If the origin is a data structure containing a runtime array it 
+    // needs special handling
     if (std::find(RuntimeArrayArguments.begin(), RuntimeArrayArguments.end(),
                   originGEP) != RuntimeArrayArguments.end()) {
+      
+      // Map all other than array accesses into translated data structure
       std::vector<SPIRVValue *> MyIndices;
-      // printf("Found Arg as Origin %llu\n", OtherIndizes.size());
       for (auto OrgIndex = OrigIndices.begin() + 1;
            OrgIndex != OrigIndices.end(); OrgIndex++) {
         MyIndices.push_back(LLVMToSPIRV::transValue(*OrgIndex, BB));
       }
 
-      if (OtherIndizes.size() == 1) {
-        MyIndices.push_back(LLVMToSPIRV::transValue(OtherIndizes[0], BB));
+      // Aggregate the array accesses indices to one index and insert this 
+      // index to the second position
+      if (OtherIndices.size() == 1) {
+        // Here is no need for aggregation
+        MyIndices.insert(MyIndices.begin() + 1,
+                         LLVMToSPIRV::transValue(OtherIndices[0], BB));
         return mapValue(
             V, BM->addAccessChainInst(transType(GEP->getType()),
                                       LLVMToSPIRV::transValue(originGEP, BB),
                                       MyIndices, BB, GEP->isInBounds()));
-      } else if (OtherIndizes.size() > 1) {
+      } else if (OtherIndices.size() > 1) {
+        // Create add instructions for index aggregation
         auto addRes = BM->addBinaryInst(
-            OpIAdd, LLVMToSPIRV::transType(OtherIndizes[0]->getType()),
-            LLVMToSPIRV::transValue(OtherIndizes[0], BB),
-            LLVMToSPIRV::transValue(OtherIndizes[1], BB), BB);
-        for (size_t i = 2; i < OtherIndizes.size(); i++) {
+            OpIAdd, transType(OtherIndices[0]->getType()),
+            LLVMToSPIRV::transValue(OtherIndices[0], BB),
+            LLVMToSPIRV::transValue(OtherIndices[1], BB), BB);
+        for (size_t i = 2; i < OtherIndices.size(); i++) {
           addRes = BM->addBinaryInst(
               OpIAdd, addRes->getType(), addRes,
-              LLVMToSPIRV::transValue(OtherIndizes[i], BB), BB);
+              LLVMToSPIRV::transValue(OtherIndices[i], BB), BB);
         }
-        MyIndices.push_back(addRes);
+        MyIndices.insert(MyIndices.begin() + 1, addRes);
         return mapValue(
             V, BM->addAccessChainInst(transType(GEP->getType()),
                                       LLVMToSPIRV::transValue(originGEP, BB),
@@ -515,7 +562,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   if (LoadInst *LD = dyn_cast<LoadInst>(V)) {
     auto TargetTy = LD->getType();
     auto Source = LD->getPointerOperand();
-    if (isBuiltIn(Source, spv::BuiltInWorkgroupSize)) {
+    if (isBuiltIn(Source, spv::BuiltInWorkgroupSize) ||
+        isBuiltIn(Source, spv::BuiltInGlobalOffset)) {
       // Is already loaded, do NOOP
       return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
     }
@@ -946,7 +994,8 @@ void LLVMToSPIRVVulkan::collectInputOutputVariables(SPIRVFunction *SF,
 
     // Exception added for WorkgroupSize, since it 
     // will be OpSpecConstant instead of OpVariable
-    if (isBuiltIn(&GV, spv::BuiltInWorkgroupSize))
+    if (isBuiltIn(&GV, spv::BuiltInWorkgroupSize) ||
+        isBuiltIn(&GV, spv::BuiltInGlobalOffset))
       continue;
 
     std::unordered_set<const Function *> Funcs;
