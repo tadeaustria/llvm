@@ -2276,6 +2276,10 @@ pi_result VLK(piEnqueueMemBufferReadRect)(
     pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
     pi_event *event) {
 
+  assert(region[0] > 0);
+  assert(region[1] > 0);
+  assert(region[2] > 0);
+
   VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
 
   pi_result ret = PI_SUCCESS;
@@ -2373,14 +2377,71 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
   return PI_SUCCESS;
 }
 
-NOT_IMPL(pi_result VLK(piEnqueueMemBufferWriteRect),
-         (pi_queue command_queue, pi_mem Buffer, pi_bool blocking_write,
-          const size_t *buffer_offset, const size_t *host_offset,
-          const size_t *region, size_t buffer_row_pitch,
-          size_t buffer_slice_pitch, size_t host_row_pitch,
-          size_t host_slice_pitch, const void *ptr,
-          pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
-          pi_event *event))
+pi_result VLK(piEnqueueMemBufferWriteRect)(
+    pi_queue command_queue, pi_mem Buffer, pi_bool blocking_write,
+    const size_t *buffer_origin, const size_t *host_origin,
+    const size_t *region, size_t buffer_row_pitch, size_t buffer_slice_pitch,
+    size_t host_row_pitch, size_t host_slice_pitch, const void *ptr,
+    pi_uint32 num_events_in_wait_list, const pi_event *event_wait_list,
+    pi_event *event) {
+
+  assert(region[0] > 0);
+  assert(region[1] > 0);
+  assert(region[2] > 0);
+
+  VLK(piEventsWait)(num_events_in_wait_list, event_wait_list);
+  
+  // Due to openCL specification
+  // https://www.khronos.org/registry/OpenCL/sdk/2.2/docs/man/html/clEnqueueReadBufferRect.html
+  if (host_row_pitch == 0)
+    host_row_pitch = region[0];
+  if (host_slice_pitch == 0)
+    host_slice_pitch = region[1] * host_row_pitch;
+  if (buffer_row_pitch == 0)
+    buffer_row_pitch = region[0];
+  if (buffer_slice_pitch == 0)
+    buffer_slice_pitch = region[1] * buffer_row_pitch;
+  
+
+  command_queue->CmdBuffer.begin(vk::CommandBufferBeginInfo(
+      vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+
+  for (size_t Slice = 0; Slice < region[2]; Slice++) {
+    for (size_t Row = 0; Row < region[1]; Row++) {
+      const void *source = reinterpret_cast<const char *>(ptr) +
+                           (host_origin[2] + Slice) * host_slice_pitch +
+                           (host_origin[1] + Row) * host_row_pitch +
+                           host_origin[0];
+      command_queue->CmdBuffer.updateBuffer(
+          Buffer->DeviceBuffer,
+          (buffer_origin[2] + Slice) * buffer_slice_pitch +
+              (buffer_origin[1] + Row) * buffer_row_pitch + buffer_origin[0],
+          region[0], source);
+    }
+  }
+
+  command_queue->CmdBuffer.end();
+
+  command_queue->Context_->lastTimelineValue++;
+  vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfo>
+      SubmitInfo = {
+          vk::SubmitInfo(0, nullptr, nullptr, 1, &command_queue->CmdBuffer, 1,
+                         &command_queue->Context_->Timeline.get()),
+          vk::TimelineSemaphoreSubmitInfo(
+              0, nullptr, 1, &command_queue->Context_->lastTimelineValue)};
+
+  command_queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
+                              vk::Fence());
+  auto Event = std::make_unique<_pi_timeline_event>(
+      command_queue->Context_, command_queue->Context_->Timeline.get(),
+      command_queue->Context_->lastTimelineValue);
+  if (blocking_write) {
+    Event->wait();
+  }
+  if (event)
+    *event = Event.release();
+  return PI_SUCCESS;
+}
 
 pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
                                       pi_mem dst_buffer, size_t src_offset,
