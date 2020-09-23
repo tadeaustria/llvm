@@ -247,17 +247,12 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     assert(ST->isSized());
 
     SPIRVTypeStruct *Ret;
-    if (ST->getStructName().find("union") != std::string::npos ||
-        ST->getStructName().find("_arg_") != std::string::npos) {
-      InParameterStructure = true;
+    //if (InParameterStructure) {
+    //  Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
+    //  Ret->addDecorate(DecorationBlock);
+    //} else {
       Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
-      InParameterStructure = false;
-      Ret->addDecorate(DecorationBlock);
-
-      // Ret->size
-    } else {
-      Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
-    }
+    //}
 
     for (size_t I = 0; I < ST->getNumElements(); I++) {
       auto StructLayout = M->getDataLayout().getStructLayout(ST);
@@ -275,6 +270,15 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
         Struct->setMemberType(I, transType(ST->getElementType(I)));
     */
   } else if (auto Pt = dyn_cast<PointerType>(T)) {
+    if (!InParameterStructure &&
+        Pt->getAddressSpace() == SPIRAddressSpace::SPIRAS_StorageBuffer) {
+      InParameterStructure = true;
+      auto Ret =
+          reinterpret_cast<SPIRVTypePointer *>(LLVMToSPIRV::transType(T));
+      Ret->getElementType()->addDecorate(DecorationBlock);
+      InParameterStructure = false;
+      return Ret;
+    }
     if (InParameterStructure) {
       // if (auto subPtr = dyn_cast<PointerType>(Pt->getElementType())) {
       auto subtype = Pt->getElementType();
@@ -651,6 +655,20 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     }
     // TODO: maybe same has to be done with the do; while
   }
+  // This was a test to fix OpAll but it does not work in OpenCL either
+  //if (CallInst *Call = dyn_cast<CallInst>(V)) {
+  //  StringRef DemangledName;
+  //  if (oclIsBuiltin(Call->getFunction()->getName(), DemangledName) &&
+  //      getSPIRVFuncOC(DemangledName) == OpAll) {
+  //    if (SelectInst *Select = dyn_cast<SelectInst>(Call->getArgOperand(0))) {
+  //      return mapValue(
+  //          V, BM->addUnaryInst(
+  //                 OpAll, transType(Call->getType()),
+  //                 LLVMToSPIRV::transValue(Select->getOperand(0), BB), BB));
+  //    }
+  //  }
+  //  // if (Call->getCalledFunction()->is )
+  //}
 
   return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
 }
