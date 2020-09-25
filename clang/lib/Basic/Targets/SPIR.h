@@ -65,14 +65,11 @@ static const unsigned VULKANAddrSpaceMap[] = {
     2, // opencl_constant
     0, // opencl_private
     0, // opencl_generic
+    5, // opencl_global_device
+    6, // opencl_global_host
     0, // cuda_device
     0, // cuda_constant
     0, // cuda_shared
-    1, // sycl_global
-    3, // sycl_local
-    2, // sycl_constant
-    0, // sycl_private
-    0, // sycl_generic
     0, // ptr32_sptr
     0, // ptr32_uptr
     0  // ptr64
