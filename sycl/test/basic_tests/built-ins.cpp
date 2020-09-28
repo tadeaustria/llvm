@@ -2,7 +2,7 @@
 // RUN: %RUN_ON_HOST %t.out
 
 // CUDA does not support printf.
-// UNSUPPORTED: cuda
+// UNSUPPORTED: cuda, vulkan
 #include <CL/sycl.hpp>
 
 #include <cassert>

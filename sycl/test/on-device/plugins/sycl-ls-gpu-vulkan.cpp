@@ -1,10 +1,10 @@
 // REQUIRES: gpu, vulkan
 
-// RUN: env SYCL_BE=PI_VULKAN sycl-ls --verbose >%t.vulkan.out
+// RUN: %BE_RUN_PLACEHOLDER sycl-ls --verbose >%t.vulkan.out
 // RUN: FileCheck %s --check-prefixes=CHECK-BUILTIN-GPU-VULKAN,CHECK-CUSTOM-GPU-VULKAN --input-file %t.vulkan.out
 
-// CHECK-BUILTIN-GPU-VULKAN: gpu_selector(){{.*}}GPU :{{.*}}Vulkan
-// CHECK-CUSTOM-GPU-VULKAN: custom_selector(gpu){{.*}}GPU :{{.*}}Vulkan
+// CHECK-BUILTIN-GPU-VULKAN: gpu_selector(){{.*}}GPU :{{.*}}VULKAN
+// CHECK-CUSTOM-GPU-VULKAN: custom_selector(gpu){{.*}}GPU :{{.*}}VULKAN
 
 //==-- sycl-ls-gpu-vulkan.cpp - SYCL test for discovered/selected devices --==//
 //
