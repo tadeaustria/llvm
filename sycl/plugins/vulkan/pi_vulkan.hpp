@@ -23,7 +23,9 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <numeric>
 #include <stdint.h>
@@ -75,38 +77,72 @@ struct _pi_context : public _ref_counter {
   vk::Device Device;
   uint32_t ComputeQueueFamilyIndex;
   uint32_t TransferQueueFamilyIndex;
-  vk::UniqueSemaphore Timeline;
-  uint64_t lastTimelineValue = 1;
   pi_device PhDevice_;
 
   ~_pi_context() {}
 };
 
-struct execution {
+class _mem_ref {
+private:
+  pi_mem Mem;
+
+public:
+  _mem_ref(pi_mem mem) : Mem(mem) { VLK(piMemRetain)(Mem); }
+  _mem_ref(_mem_ref &&mv) : Mem(mv.Mem) { mv.Mem = nullptr; };
+  _mem_ref(const _mem_ref &cp) : Mem(cp.Mem) { VLK(piMemRetain)(Mem); };
+  _mem_ref &operator=(_mem_ref &&mv) {
+    Mem = mv.Mem;
+    mv.Mem = nullptr;
+    return *this;
+  }
+  _mem_ref &operator=(const _mem_ref &cp) {
+    Mem = cp.Mem;
+    VLK(piMemRetain)(Mem);
+    return *this;
+  }
+  ~_mem_ref() {
+    if (Mem)
+      VLK(piMemRelease)(Mem);
+  }
+};
+
+struct _pi_semaphore {
+  _pi_semaphore(vk::UniqueSemaphore &&Sema) : Semaphore(std::move(Sema)){};
+
+  vk::UniqueSemaphore Semaphore;
+
+  static std::shared_ptr<_pi_semaphore> createNew(vk::Device &device);
+
+  typedef std::shared_ptr<_pi_semaphore> sptr_t;
+};
+
+struct _pi_execution {
+  std::vector<_mem_ref> MemoryReferences;
+  _pi_semaphore::sptr_t Semaphore;
+  vk::UniqueFence Fence;
+  vk::UniqueCommandBuffer CommandBuffer;
   vk::UniqueDescriptorSetLayout DescriptorSetLayout;
   vk::UniqueDescriptorPool DescriptorPool;
   vk::UniquePipelineLayout PipelineLayout;
   vk::UniquePipeline Pipeline;
   vk::UniqueDescriptorSet DescriptorSet;
 
-  using uptr = std::unique_ptr<execution>;
+  using uptr_t = std::unique_ptr<_pi_execution>;
 };
 
 struct _pi_queue : public _ref_counter {
   vk::Queue Queue;
   vk::UniqueCommandPool CommandPool;
-  vk::CommandBuffer CmdBuffer;
 
-  std::vector<execution::uptr> storedExecutions;
+  std::list<_pi_execution::uptr_t> StoredExecutions;
 
   pi_context Context_;
   pi_queue_properties Properties_;
 
   _pi_queue(vk::Queue &&queue_, vk::UniqueCommandPool &&pool,
-            vk::CommandBuffer &&buffer_, pi_context context,
-            pi_queue_properties properties)
+            pi_context context, pi_queue_properties properties)
       : _ref_counter{1}, Queue(queue_), CommandPool(std::move(pool)),
-        CmdBuffer(buffer_), Context_(context), Properties_(properties) {
+        Context_(context), Properties_(properties) {
     if (Context_) {
       VLK(piContextRetain)(Context_);
     }
@@ -114,13 +150,18 @@ struct _pi_queue : public _ref_counter {
 
   ~_pi_queue() {
     if (Context_) {
-      Context_->Device.freeCommandBuffers(CommandPool.get(), 1u, &CmdBuffer);
       VLK(piContextRelease)(Context_);
+    }
+    for (auto &Exec : StoredExecutions) {
+      while (Context_->Device.getFenceStatus(Exec->Fence.get()) ==
+             vk::Result::eNotReady)
+        ;
     }
   }
 
   bool isProfilingEnabled() { return Properties_ & PI_QUEUE_PROFILING_ENABLE; }
-
+  vk::UniqueCommandBuffer createCommandBuffer();
+  void cleanupFinishedExecutions();
 };
 
 struct _pi_mem : public _ref_counter {
@@ -132,43 +173,60 @@ struct _pi_mem : public _ref_counter {
   pi_mem_flags MemFlags;
   size_t TotalMemorySize;
   void *HostPtr;
+  /// This flag marks memories, which have been written blocking
+  /// so that on mapping the memory on host, has to be updated
+  /// from the device first.
+  bool DeviceDirty = false;
 
   cl_map_flags LastMapFlags = 0ul;
 
   _pi_mem(pi_context Context, pi_mem_flags MemFlags_, size_t TotalMemorySize_,
           void *HostPtr_)
       : _ref_counter{1}, Context_(Context), MemFlags(MemFlags_),
-        TotalMemorySize(TotalMemorySize_),
-        HostPtr(MemFlags_ & PI_MEM_FLAGS_HOST_PTR_USE ? HostPtr_ : nullptr) {
+        TotalMemorySize(TotalMemorySize_), HostPtr(HostPtr_) {
     if (Context_) {
       VLK(piContextRetain)(Context_);
-      // Allocated Memory must be at least the required size for Buffer
-      // This is either the requested memory size or at least the
-      // required minimal size of the hardware
     }
   }
 
   void allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
-                   vk::Buffer &BufferTarget, vk::DeviceMemory &MemoryTarget);
+                   vk::Buffer &BufferTarget, vk::DeviceMemory &MemoryTarget,
+                   void *host_ptr = nullptr);
 
-  void allocHostMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex) {
-    allocMemory(Buffer_, MemoryTypeIndex, HostBuffer, HostMemory);
+  void allocHostMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex,
+                       void *host_ptr = nullptr) {
+    allocMemory(Buffer_, MemoryTypeIndex, HostBuffer, HostMemory, host_ptr);
   }
   void allocDeviceMemory(vk::Buffer Buffer_, uint32_t MemoryTypeIndex) {
     allocMemory(Buffer_, MemoryTypeIndex, DeviceBuffer, DeviceMemory);
   }
 
-  void copy(vk::Buffer &from, vk::Buffer &to,
-            vk::ArrayProxy<const vk::BufferCopy> regions, bool isBlocking);
-  void copy(vk::Buffer &from, vk::Buffer &to, bool isBlocking) {
+  _pi_semaphore::sptr_t copy(vk::Buffer &from, vk::Buffer &to,
+                             vk::ArrayProxy<const vk::BufferCopy> regions,
+                             bool isBlocking, pi_uint32 num_events,
+                             const pi_event *event_list);
+  _pi_semaphore::sptr_t copy(vk::Buffer &from, vk::Buffer &to, bool isBlocking,
+                             pi_uint32 num_events, const pi_event *event_list) {
     std::array<const vk::BufferCopy, 1> totalSize = {
         vk::BufferCopy(0, 0, TotalMemorySize)};
-    copy(from, to, totalSize, isBlocking);
+    return copy(from, to, totalSize, isBlocking, num_events, event_list);
   }
-  void copyHtoD() { copy(HostBuffer, DeviceBuffer, false); }
-  void copyDtoH() { copy(DeviceBuffer, HostBuffer, false); }
-  void copyHtoDblocking() { copy(HostBuffer, DeviceBuffer, true); }
-  void copyDtoHblocking() { copy(DeviceBuffer, HostBuffer, true); }
+  _pi_semaphore::sptr_t copyHtoD(pi_uint32 num_events,
+                                 const pi_event *event_list) {
+    return copy(HostBuffer, DeviceBuffer, false, num_events, event_list);
+  }
+  _pi_semaphore::sptr_t copyDtoH(pi_uint32 num_events,
+                                 const pi_event *event_list) {
+    DeviceDirty = false;
+    return copy(DeviceBuffer, HostBuffer, false, num_events, event_list);
+  }
+  void copyHtoDblocking(pi_uint32 num_events, const pi_event *event_list) {
+    copy(HostBuffer, DeviceBuffer, true, num_events, event_list);
+  }
+  void copyDtoHblocking(pi_uint32 num_events, const pi_event *event_list) {
+    DeviceDirty = false;
+    copy(DeviceBuffer, HostBuffer, true, num_events, event_list);
+  }
 
   void releaseMemories() {
     Context_->Device.destroyBuffer(HostBuffer);
@@ -197,7 +255,7 @@ struct _pi_program : public _ref_counter {
     if (Context_)
       VLK(piContextRetain)(Context_);
   }
-  
+
   ~_pi_program() {
     if (Context_)
       VLK(piContextRelease)(Context_);
@@ -205,7 +263,7 @@ struct _pi_program : public _ref_counter {
 };
 
 struct _pi_kernel : public _ref_counter {
-  const char *Name;
+  std::string Name;
   std::map<pi_uint32, size_t> ArgIndexToInternalIndex;
   std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
 
@@ -255,18 +313,19 @@ struct _pi_empty_event : public _pi_event {
 };
 
 struct _pi_timeline_event : public _pi_event {
-  _pi_timeline_event(pi_context context_, vk::Semaphore semaphore_,
+  _pi_timeline_event(pi_context context_, _pi_semaphore::sptr_t semaphore_,
                      uint64_t waitValue)
-      : Context(context_), Semaphore(semaphore_), Value(waitValue),
+      : Context(context_), Semaphore(std::move(semaphore_)), Value(waitValue),
         QueryPool(nullptr) {
     if (Context)
       VLK(piContextRetain)(Context);
   }
-  _pi_timeline_event(pi_context context_, vk::Semaphore semaphore_,
+  _pi_timeline_event(pi_context context_, _pi_semaphore::sptr_t semaphore_,
                      uint64_t waitValue, vk::UniqueQueryPool &pool)
-      : Context(context_), Semaphore(semaphore_), Value(waitValue), QueryPool(std::move(pool)) {
+      : Context(context_), Semaphore(std::move(semaphore_)), Value(waitValue),
+        QueryPool(std::move(pool)) {
     if (Context)
-      VLK(piContextRetain)(Context);   
+      VLK(piContextRetain)(Context);
   }
 
   ~_pi_timeline_event() {
@@ -276,7 +335,7 @@ struct _pi_timeline_event : public _pi_event {
   }
 
   pi_context Context;
-  vk::Semaphore Semaphore;
+  _pi_semaphore::sptr_t Semaphore;
   uint64_t Value;
   vk::UniqueQueryPool QueryPool;
 
@@ -285,15 +344,29 @@ struct _pi_timeline_event : public _pi_event {
                                     vkGetInstanceProcAddr, Context->Device,
                                     vkGetDeviceProcAddr);
     Context->Device.waitSemaphoresKHR(
-        vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlags(), 1, &Semaphore,
-                                 &Value),
+        vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlags(), 1,
+                                 &Semaphore->Semaphore.get(), &Value),
         UINT64_MAX, dldid);
   }
 
   pi_result getProfilingInfo(pi_profiling_info param_name,
-                             size_t param_value_size,
-                        void *param_value,
-                        size_t *param_value_size_ret) override;
+                             size_t param_value_size, void *param_value,
+                             size_t *param_value_size_ret) override;
+
+  using event_info_t =
+      std::tuple<std::vector<vk::Semaphore>, std::vector<uint64_t>,
+                 std::vector<vk::PipelineStageFlags>>;
+
+  static event_info_t extractSemaphores(pi_uint32 num_events,
+                                        const pi_event *event_list);
+
+  static void setWaitingSemaphores(
+      pi_uint32 num_events, const pi_event *event_list,
+      vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfoKHR>
+          &submitInfo);
+
+private:
+  static _pi_timeline_event::event_info_t WaitSemaphores;
 };
 
 template <typename T> struct _pi_event_impl : public _pi_event {

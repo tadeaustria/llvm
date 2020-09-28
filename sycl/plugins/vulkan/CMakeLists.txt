@@ -4,14 +4,12 @@
 #cmake_policy(SET CMP0057 NEW)
 #include(AddLLVM)
 
-# Plugin for OpenCL
+# Plugin for Vulkan
 # Create Shared library for libpi_vulkan.so.
-#TODO: remove dependency on pi.hpp in sycl project.
-#TODO: Currently, the pi.hpp header is common between sycl and plugin library sources. 
-#This can be changed by copying the pi.hpp file in the plugins project.
 
 find_package(Vulkan 1.2.141 REQUIRED)
 find_package(Threads REQUIRED)
+find_package(LLVM 12 REQUIRED NO_DEFAULT_PATH PATHS ${CMAKE_BINARY_DIR})
 
 add_library(pi_vulkan SHARED
   "${sycl_inc_dir}/CL/sycl/detail/pi.h"
@@ -26,11 +24,15 @@ add_dependencies(pi_vulkan
 
 add_dependencies(sycl-toolchain pi_vulkan)
 
+list(GET LLVM_INCLUDE_DIRS 0 LLVM_INCLUDE_DIR)
+
 target_include_directories(pi_vulkan
   PRIVATE
     ${sycl_inc_dir}
   PUBLIC
     ${Vulkan_INCLUDE_DIRS}
+    ${LLVM_INCLUDE_DIR}/../../llvm-spirv/include
+    ${LLVM_INCLUDE_DIR}/../../llvm-spirv/lib/SPIRV/libSPIRV
 )
 
 if (MSVC)
@@ -39,11 +41,17 @@ if (MSVC)
   target_compile_definitions(pi_vulkan PRIVATE __SYCL_BUILD_SYCL_DLL)
 endif()
 
+# Find the libraries that correspond to the LLVM components
+# that we wish to use
+llvm_map_components_to_libnames(llvm_libs SPIRVLib)
+
 target_link_libraries(pi_vulkan 
 	PRIVATE Vulkan::Vulkan
   PRIVATE OpenCL::Headers
   PRIVATE Threads::Threads
-  PRIVATE ${OpenCL_LIBRARIES})
+  PRIVATE ${OpenCL_LIBRARIES}
+  PRIVATE ${llvm_libs}
+  )
     
 
 # add dynamic library functionality for RenderDoc
