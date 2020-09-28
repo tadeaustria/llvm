@@ -3946,11 +3946,11 @@ bool llvm::writeSpirv(Module *M, std::ostream &OS, std::string &ErrMsg) {
   // To preserve old behavior of the translator, let's enable all extensions
   // by default in this API
   DefaultOpts.enableAllExtensions();
-  return llvm::writeSpirv(M, DefaultOpts, false, OS, ErrMsg);
+  return llvm::writeSpirv(M, DefaultOpts, OS, ErrMsg);
 }
 
-bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts, bool isVulkan,
-                      std::ostream &OS, std::string &ErrMsg) {
+bool llvm::writeSpirv(Module *M, const SPIRV::TranslatorOpts &Opts,
+                      std::ostream &OS, std::string &ErrMsg, bool isVulkan) {
   std::unique_ptr<SPIRVModule> BM(SPIRVModule::createSPIRVModule(Opts, isVulkan));
   if (!isValidLLVMModule(M, BM->getErrorLog()))
     return false;

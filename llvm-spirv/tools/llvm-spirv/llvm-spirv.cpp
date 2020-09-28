@@ -244,9 +244,9 @@ static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts,
   bool Success = false;
   if (OutputFile != "-") {
     std::ofstream OutFile(OutputFile, std::ios::binary);
-    Success = writeSpirv(M.get(), Opts, isVulkan, OutFile, Err);
+    Success = writeSpirv(M.get(), Opts, OutFile, Err, isVulkan);
   } else {
-    Success = writeSpirv(M.get(), Opts, isVulkan, std::cout, Err);
+    Success = writeSpirv(M.get(), Opts, std::cout, Err, isVulkan);
   }
 
   if (!Success) {

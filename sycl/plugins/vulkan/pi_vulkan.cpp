@@ -1630,21 +1630,6 @@ pi_result VLK(piclProgramCreateWithSource)(pi_context context, pi_uint32 count,
   return {};
 }
 
-pi_result VLK(piclProgramCreateWithBinary)(
-    pi_context context, pi_uint32 num_devices, const pi_device *device_list,
-    const size_t *lengths, const unsigned char **binaries,
-    pi_int32 *binary_status, pi_program *ret_program) {
-  // TODO: Only one device for now
-  // TODO: is binary_status needed to be filled
-  auto Program = std::make_unique<_pi_program>(
-      context->Device.createShaderModule(vk::ShaderModuleCreateInfo(
-          vk::ShaderModuleCreateFlags(), lengths[0],
-          reinterpret_cast<const uint32_t *>(binaries[0]))),
-      context, reinterpret_cast<const char *>(binaries[0]), lengths[0]);
-  *ret_program = Program.release();
-  return PI_SUCCESS;
-}
-
 pi_result VLK(piProgramGetInfo)(pi_program program, pi_program_info param_name,
                                 size_t param_value_size, void *param_value,
                                 size_t *param_value_size_ret) {
@@ -2805,7 +2790,6 @@ __SYCL_EXPORT pi_result piPluginInit(pi_plugin *PluginInit) {
   // Program
   _PI_CL(piProgramCreate, VLK(piProgramCreate))
   _PI_CL(piclProgramCreateWithSource, VLK(piclProgramCreateWithSource))
-  _PI_CL(piclProgramCreateWithBinary, VLK(piclProgramCreateWithBinary))
   _PI_CL(piProgramGetInfo, VLK(piProgramGetInfo))
   _PI_CL(piProgramCompile, VLK(piProgramCompile))
   _PI_CL(piProgramBuild, VLK(piProgramBuild))

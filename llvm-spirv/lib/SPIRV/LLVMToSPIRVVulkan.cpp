@@ -141,7 +141,7 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   BF->setFunctionControlMask(transFunctionControlMask(F));
   if (F->hasName())
     BM->setName(BF, F->getName().str());
-  if (oclIsKernel(F)) {
+  if (isKernel(F))
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
     // FIXME: Think about a different location for this only be done once
     //static bool Once = false;
@@ -158,7 +158,13 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     //                                           BuiltInWorkgroupSize));
     //  Once = true;
     //}
-  }
+
+  // Translate OpenCL/SYCL buffer_location metadata if it's attached to the
+  // translated function declaration
+  MDNode *BufferLocation = nullptr;
+  if (BM->isAllowedToUseExtension(ExtensionID::SPV_INTEL_fpga_buffer_location))
+    BufferLocation = ((*F).getMetadata("kernel_arg_buffer_location"));
+
   // Vulkan no linkage decorations
   // else if (F->getLinkage() != GlobalValue::InternalLinkage)
   //  BF->setLinkageType(transLinkageType(F));
@@ -187,16 +193,33 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
       BA->addDecorate(DecorationMaxByteOffset,
                       Attrs.getAttribute(ArgNo + 1, Attribute::Dereferenceable)
                           .getDereferenceableBytes());
+    if (BufferLocation && I->getType()->isPointerTy()) {
+      // Order of integer numbers in MD node follows the order of function
+      // parameters on which we shall attach the appropriate decoration. Add
+      // decoration only if MD value is not negative.
+      int LocID = -1;
+      if (!isa<MDString>(BufferLocation->getOperand(ArgNo)) &&
+          !isa<MDNode>(BufferLocation->getOperand(ArgNo)))
+        LocID = getMDOperandAsInt(BufferLocation, ArgNo);
+      if (LocID >= 0) {
+        BM->addCapability(CapabilityFPGABufferLocationINTEL);
+        BA->addDecorate(DecorationBufferLocationINTEL, LocID);
+      }
+    }
   }
   // if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::ZExt))
   //  BF->addDecorate(DecorationFuncParamAttr, FunctionParameterAttributeZext);
   // if (Attrs.hasAttribute(AttributeList::ReturnIndex, Attribute::SExt))
   //  BF->addDecorate(DecorationFuncParamAttr, FunctionParameterAttributeSext);
   if (Attrs.hasFnAttribute("referenced-indirectly")) {
-    assert(!oclIsKernel(F) &&
+    assert(!isKernel(F) &&
            "kernel function was marked as referenced-indirectly");
     BF->addDecorate(DecorationReferencedIndirectlyINTEL);
   }
+
+  if (BM->isAllowedToUseExtension(ExtensionID::SPV_INTEL_vector_compute))
+    transVectorComputeMetadata(F);
+
   SPIRVDBG(dbgs() << "[transFunction] " << *F << " => ";
            spvdbgs() << *BF << '\n';)
   return BF;
@@ -275,7 +298,8 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
       InParameterStructure = true;
       auto Ret =
           reinterpret_cast<SPIRVTypePointer *>(LLVMToSPIRV::transType(T));
-      Ret->getElementType()->addDecorate(DecorationBlock);
+      if (Pt->getElementType()->isStructTy())
+        Ret->getElementType()->addDecorate(DecorationBlock);
       InParameterStructure = false;
       return Ret;
     }
@@ -307,7 +331,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     return NewArr;
   } else if (auto *VecTy = dyn_cast<VectorType>(T)) {
     // Store special Vec3 UInt Type for Workgroup Constant
-    if (VecTy->getNumElements() == 3 &&
+    if (VecTy->getElementCount() == 3 &&
         VecTy->getElementType()->isIntegerTy()) {
       return WorkgroupSizeType = LLVMToSPIRV::transType(T);
     }
@@ -369,7 +393,8 @@ Value *backtrace(Value *V, std::vector<Value *> &indices,
 /// Use CreateForward = true to indicate such situation.
 SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                                            SPIRVBasicBlock *BB,
-                                                           bool CreateForward) {
+                                                           bool CreateForward,
+                                                           FuncTransMode FuncTrans) {
 
   auto containsRTArray = [&](Value *V) {
     auto TranslatedStructType =
@@ -431,7 +456,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     }
 
     // Descriptor & Binding Decoration for input structures needed
-    auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(V, BB);
+    auto TransValue =
+        LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward, FuncTrans);
     const char *ArgName = "_arg_";
     auto Pos = GV->getName().find(ArgName);
     if (Pos != std::string::npos) {
@@ -670,7 +696,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   //  // if (Call->getCalledFunction()->is )
   //}
 
-  return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
+  return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward,
+                                                  FuncTrans);
 }
 
 std::vector<SPIRVWord> LLVMToSPIRVVulkan::transValue(

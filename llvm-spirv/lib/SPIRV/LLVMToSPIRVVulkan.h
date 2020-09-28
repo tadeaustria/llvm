@@ -85,8 +85,9 @@ public:
   SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB) override;
   bool transDecoration(Value *V, SPIRVValue *BV) override;
   SPIRVFunction *transFunctionDecl(Function *F) override;
-  SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
-                                          bool CreateForward) override;
+  SPIRVValue *transValueWithoutDecoration(
+      Value *V, SPIRVBasicBlock *BB, bool CreateForward,
+      FuncTransMode FuncTrans = FuncTransMode::Decl) override;
 
 protected:
   std::vector<SPIRVWord>
