@@ -52,6 +52,7 @@
 #include "SPIRVWriter.h"
 
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/IntrinsicInst.h"
 
@@ -111,7 +112,8 @@ protected:
   std::vector<Value *> RuntimeArrayArguments;
   bool WorkgroupSizeAvailable = false;
   SPIRVType *WorkgroupSizeType = nullptr;
-  llvm::PostDominatorTree DominatorTree;
+  llvm::LoopInfoBase<llvm::BasicBlock, llvm::Loop> LoopInfoObj;
+  llvm::PostDominatorTree PDominatorTree;
 };
 
 } // Namespace SPIRV

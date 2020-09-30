@@ -86,7 +86,7 @@ using namespace OCLUtil;
 namespace SPIRV {
 
 LLVMToSPIRVVulkan::LLVMToSPIRVVulkan(SPIRVModule *SMod)
-    : LLVMToSPIRV(SMod), RuntimeArrayArguments() {}
+    : LLVMToSPIRV(SMod), RuntimeArrayArguments(), LoopInfoObj() {}
 
 void LLVMToSPIRVVulkan::transFunction(Function *I) {
   SPIRVFunction *BF = transFunctionDecl(I);
@@ -128,11 +128,17 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
 
   // Using analysis pass
   FunctionAnalysisManager FAM;
-  auto DomAnalysis = PostDominatorTreeAnalysis();
+  auto DomAnalysis = DominatorTreeAnalysis();
+  auto PostDomAnalysis = PostDominatorTreeAnalysis();
   FAM.registerPass([&] { return DomAnalysis; });
-  DominatorTree = DomAnalysis.run(*F, FAM);
+  FAM.registerPass([&] { return PostDomAnalysis; });
+  auto DominatorTree = DomAnalysis.run(*F, FAM);
+  PDominatorTree = PostDomAnalysis.run(*F, FAM);
+  // generate the LoopInfoBase for the current function
+  LoopInfoObj.releaseMemory();
+  LoopInfoObj.analyze(DominatorTree); 
 
-  // DominatorTree.print(llvm::outs());
+  // PDominatorTree.print(llvm::outs());
 
   SPIRVTypeFunction *BFT = static_cast<SPIRVTypeFunction *>(
       transType(getAnalysis<OCLTypeToSPIRV>().getAdaptedType(F)));
@@ -615,9 +621,6 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   }
 
   if (BranchInst *Branch = dyn_cast<BranchInst>(V)) {
-    SPIRVLabel *SuccessorTrue = static_cast<SPIRVLabel *>(
-        LLVMToSPIRV::transValue(Branch->getSuccessor(0), BB));
-
     std::vector<SPIRVWord> Parameters;
     spv::LoopControlMask LoopControl = getLoopControl(Branch, Parameters);
 
@@ -628,48 +631,49 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     // This "fix" instead uses for for-loop increment block
     // by simple label name match. This then has the back edge
     // and uses the same logic as original code
-    if (Branch->isUnconditional()) {
-      // For "for" and "while" loops llvm.loop metadata is attached to
-      // an unconditional branch instruction.
-      // if (LoopControl != spv::LoopControlMaskNone) {
-      if (BB->getName().find(".inc") != std::string::npos) {
-        // SuccessorTrue is the loop header BB.
-        const SPIRVInstruction *Term = SuccessorTrue->getTerminateInstr();
-        if (Term && Term->getOpCode() == OpBranchConditional) {
-          const auto *Br = static_cast<const SPIRVBranchConditional *>(Term);
-          BM->addLoopMergeInst(Br->getFalseLabel()->getId(), // Merge Block
-                               BB->getId(),                  // Continue Target
-                               LoopControl, Parameters, SuccessorTrue);
-        } else {
-          if (BM->isAllowedToUseExtension(
-                  ExtensionID::SPV_INTEL_unstructured_loop_controls)) {
-            // For unstructured loop we add a special loop control instruction.
-            // Simple example of unstructured loop is an infinite loop, that has
-            // no terminate instruction.
-            BM->addLoopControlINTELInst(LoopControl, Parameters, SuccessorTrue);
-          }
-        }
-      }
-      return mapValue(V, BM->addBranchInst(SuccessorTrue, BB));
-    } else if (Branch->isConditional()) {
+    //if (Branch->isUnconditional()) {
+    //  // For "for" and "while" loops llvm.loop metadata is attached to
+    //  // an unconditional branch instruction.
+    //  // if (LoopControl != spv::LoopControlMaskNone) {
+    //  if (BB->getName().find(".inc") != std::string::npos) {
+    //    // SuccessorTrue is the loop header BB.
+    //    const SPIRVInstruction *Term = SuccessorTrue->getTerminateInstr();
+    //    if (Term && Term->getOpCode() == OpBranchConditional) {
+    //      const auto *Br = static_cast<const SPIRVBranchConditional *>(Term);
+    //      BM->addLoopMergeInst(Br->getFalseLabel()->getId(), // Merge Block
+    //                           BB->getId(),                  // Continue Target
+    //                           LoopControl, Parameters, SuccessorTrue);
+    //    } else {
+    //      if (BM->isAllowedToUseExtension(
+    //              ExtensionID::SPV_INTEL_unstructured_loop_controls)) {
+    //        // For unstructured loop we add a special loop control instruction.
+    //        // Simple example of unstructured loop is an infinite loop, that has
+    //        // no terminate instruction.
+    //        BM->addLoopControlINTELInst(LoopControl, Parameters, SuccessorTrue);
+    //      }
+    //    }
+    //  }
+    //  return mapValue(V, BM->addBranchInst(SuccessorTrue, BB));
+    //} else
+    if (Branch->isConditional()) {
 
-      if (BB->getName().find(".body") != std::string::npos) {
-        SPIRVLabel *SuccessorFalse = static_cast<SPIRVLabel *>(
-            LLVMToSPIRV::transValue(Branch->getSuccessor(1), BB));
+      auto Loop = LoopInfoObj.getLoopFor(Branch->getSuccessor(0));
+      if (!Loop)
+        Loop = LoopInfoObj.getLoopFor(Branch->getSuccessor(1));
+      if (Loop){
+        auto Continue = static_cast<SPIRVLabel *>(
+            LLVMToSPIRV::transValue(Loop->getHeader(), BB));
+        auto Merge = static_cast<SPIRVLabel *>(
+            LLVMToSPIRV::transValue(Loop->getExitBlock(), BB));
+
         auto BranchTranslated =
             LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
-        if (SuccessorFalse->getName().find(".body")) {
-          BM->addLoopMergeInst(SuccessorTrue->getId(),  // Merge Block
-                               SuccessorFalse->getId(), // Continue Target
-                               LoopControl, Parameters, BB);
-        } else {
-          BM->addLoopMergeInst(SuccessorFalse->getId(), // Merge Block
-                               SuccessorTrue->getId(),  // Continue Target
-                               LoopControl, Parameters, BB);
-        }
+        BM->addLoopMergeInst(Merge->getId(),    // Merge Block
+                             Continue->getId(), // Continue Target
+                             LoopControl, Parameters, BB);
         return BranchTranslated;
       } else {
-        if (auto Dominator = DominatorTree.findNearestCommonDominator(
+        if (auto Dominator = PDominatorTree.findNearestCommonDominator(
                 Branch->getSuccessor(0), Branch->getSuccessor(1))) {
           BM->addSelectionMergeInst(
               LLVMToSPIRV::transValue(Dominator, BB)->getId(),
@@ -679,7 +683,6 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         }
       }
     }
-    // TODO: maybe same has to be done with the do; while
   }
   // This was a test to fix OpAll but it does not work in OpenCL either
   //if (CallInst *Call = dyn_cast<CallInst>(V)) {
