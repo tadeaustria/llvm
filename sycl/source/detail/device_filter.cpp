@@ -24,11 +24,12 @@ device_filter::device_filter(const std::string &FilterString) {
                             {"gpu", info::device_type::gpu},
                             {"acc", info::device_type::accelerator},
                             {"*", info::device_type::all}}};
-  const std::array<std::pair<std::string, backend>, 5> SyclBeMap = {
+  const std::array<std::pair<std::string, backend>, 6> SyclBeMap = {
       {{"host", backend::host},
        {"opencl", backend::opencl},
        {"level_zero", backend::level_zero},
        {"cuda", backend::cuda},
+       {"vulkan", backend::vulkan},
        {"*", backend::all}}};
 
   size_t Cursor = 0;
