@@ -3164,6 +3164,7 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
   }
 
 public:
+  static constexpr const bool VisitInsideSimpleContainers = false;
   SyclShaderDeclCreator(Sema &S, StringRef Name, SourceLocation Loc,
                         bool IsInline, bool IsSIMDKernel)
       : SyclKernelFieldHandler(S),
@@ -3220,25 +3221,62 @@ public:
     return true;
   }
 
-  bool handleSyclAccessorType(const CXXRecordDecl *, const CXXBaseSpecifier &BS,
+  bool handleSyclAccessorType(const CXXRecordDecl *XX, const CXXBaseSpecifier &BS,
                               QualType FieldTy) final {
-    assert(false && "Not implemented for Vulkan yet");
-    //const auto *RecordDecl = FieldTy->getAsCXXRecordDecl();
-    //assert(RecordDecl && "The accessor/sampler must be a RecordDecl");
-    //CXXMethodDecl *InitMethod = getMethodByName(RecordDecl, InitMethodName);
-    //assert(InitMethod && "The accessor/sampler must have the __init method");
 
-    //// Don't do -1 here because we count on this to be the first parameter added
-    //// (if any).
-    //size_t ParamIndex = Params.size();
-    //for (const ParmVarDecl *Param : InitMethod->parameters()) {
-    //  QualType ParamTy = Param->getType();
-    //  addParam(BS, ParamTy.getCanonicalType());
-    //  if (ParamTy.getTypePtr()->isPointerType())
-    //    handleAccessorPropertyList(Params.back(), RecordDecl, BS.getBeginLoc());
-    //}
-    //LastParamIndex = ParamIndex;
-    return false;
+    const auto *RecordDecl = FieldTy->getAsCXXRecordDecl();
+    assert(RecordDecl && "The accessor/sampler must be a RecordDecl");
+    CXXMethodDecl *InitMethod = getMethodByName(RecordDecl, InitMethodName);
+    assert(InitMethod && "The accessor/sampler must have the __init method");
+
+    auto &CTX = SemaRef.getASTContext();
+
+    // Don't do -1 here because we count on this to be the first parameter
+    // added (if any).
+    size_t ParamIndex = Params.size();
+    auto DataParam = InitMethod->getParamDecl(0);
+    assert((DataParam->getName().compare("Ptr") == 0) &&
+           "First Parameter of __init method must be data pointer");
+
+    // addParam(FD, DataParam->getType().getCanonicalType());
+    for (auto Param = InitMethod->parameters().begin();
+         Param != InitMethod->parameters().end(); Param++) {
+
+      // addParam(FD, (*Param)->getType().getCanonicalType());
+
+      auto NewStructType = CXXRecordDecl::Create(
+          CTX, TagTypeKind::TTK_Struct, CTX.getTranslationUnitDecl(),
+          SourceLocation(), SourceLocation(), XX->getIdentifier());
+      NewStructType->startDefinition();
+      NewStructType->setDeclName(
+          &CTX.Idents.get("_arg_" + std::to_string(Counter) + "_t"));
+
+      /*for (auto Param = InitMethod->parameters().begin() + 1;
+           Param != InitMethod->parameters().end(); Param++)
+        addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);*/
+      addParam(BS, (*Param)->getType().getCanonicalType(), NewStructType);
+
+      NewStructType->completeDefinition();
+
+      // Create new structure for each accessor
+      // use Extern linkage so it does not get a standard initializor
+
+      auto NewStruct = VarDecl::Create(
+          CTX, CTX.getTranslationUnitDecl(), SourceLocation(), SourceLocation(),
+          XX->getIdentifier(),
+          CTX.getAddrSpaceQualType(CTX.getTypeDeclType(NewStructType),
+                                   LangAS::opencl_global),
+          XX->getASTContext().getTrivialTypeSourceInfo(FieldTy), SC_Extern);
+
+      NewStruct->setDeclName(
+          &CTX.Idents.get("_arg_" + std::to_string(Counter++)));
+
+      CTX.getTranslationUnitDecl()->addDecl(NewStructType);
+      CTX.getTranslationUnitDecl()->addDecl(NewStruct);
+      Params.push_back(NewStruct);
+      LastParamIndex = ParamIndex;
+    }
+    return true;
   }
 
   bool handleSyclAccessorType(FieldDecl *FD, QualType FieldTy) final {
@@ -3344,8 +3382,7 @@ public:
 
   bool handleNonDecompStruct(const CXXRecordDecl *, FieldDecl *FD,
                              QualType Ty) final {
-    addParam(FD, Ty);
-    return true;
+    return handleScalarType(FD, Ty);
   }
 
   bool handleNonDecompStruct(const CXXRecordDecl *Base,
@@ -3476,8 +3513,16 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
         DeclCreator.getParamVarDeclsForCurrentField()[0];
 
     QualType ParamType = KernelParameter->getType();
-    Expr *DRE = SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
-                                         KernelCallerSrcLoc);
+    auto ParamField = ParamType->getAsCXXRecordDecl()->field_begin();
+    Expr *DRE = SemaRef.BuildMemberExpr(
+        SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
+                                 SourceLocation()),
+        false, SourceLocation(), nullptr, SourceLocation(), *ParamField,
+        DeclAccessPair::make(*ParamField, AccessSpecifier::AS_none), false,
+        DeclarationNameInfo(
+            ParamField->getDeclName(),
+            SourceLocation()), // Check if Field can be replaced by ParamField
+        ParamField->getType(), VK_LValue, ExprObjectKind::OK_Ordinary);
     return DRE;
   }
 
