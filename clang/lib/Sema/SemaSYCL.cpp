@@ -3401,8 +3401,7 @@ public:
   }
 
   bool handleSyclStreamType(FieldDecl *FD, QualType FieldTy) final {
-    addParam(FD, FieldTy);
-    return true;
+    return handleScalarType(FD, FieldTy);
   }
 
   bool handleSyclStreamType(const CXXRecordDecl *, const CXXBaseSpecifier &,
