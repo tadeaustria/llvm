@@ -103,7 +103,7 @@ public:
                                         SPIRVEntry *);
   bool transSourceLanguage();
   bool transExtension();
-  bool transBuiltinSet();
+  virtual bool transBuiltinSet();
   bool isKnownIntrinsic(Intrinsic::ID Id);
   virtual SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic, SPIRVBasicBlock *BB);
   SPIRVValue *transCallInst(CallInst *Call, SPIRVBasicBlock *BB);

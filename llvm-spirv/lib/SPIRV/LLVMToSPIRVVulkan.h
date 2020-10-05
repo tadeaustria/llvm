@@ -80,6 +80,7 @@ public:
 
   bool transAddressingMode() override;
   bool transAlign(Value *V, SPIRVValue *BV) override;
+  bool transBuiltinSet() override;
 
   SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic,
                                  SPIRVBasicBlock *BB) override;
