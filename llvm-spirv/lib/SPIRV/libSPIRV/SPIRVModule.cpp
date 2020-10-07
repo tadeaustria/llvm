@@ -1651,7 +1651,7 @@ SPIRVInstruction *SPIRVModuleImpl::addVariable(
         if (Inst->isLabel()) {
           LastVariable = VariableBB->getNext(Inst);
           break;
-        } else if (Inst->isVariable()) {
+        } else {
           LastVariable = Inst;
           break;
         }
