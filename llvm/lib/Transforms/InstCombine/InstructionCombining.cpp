@@ -155,7 +155,7 @@ MaxArraySize("instcombine-maxarray-size", cl::init(1024),
              cl::desc("Maximum array size considered when doing a combine"));
 
 static cl::opt<bool>
-VulkanFriendly("instcombine-spirv-vulkan-friendly", cl::init(true), //FIXME: Default to false and link with triple correctly
+VulkanFriendly("instcombine-spirv-vulkan-friendly", cl::init(false), //FIXME: Default to false and link with triple correctly
                cl::desc("Optimizations will be Vulkan friendly"));
 
 // FIXME: Remove this flag when it is no longer necessary to convert
@@ -175,6 +175,10 @@ InstCombiner::targetInstCombineIntrinsic(IntrinsicInst &II) {
     return TTI.instCombineIntrinsic(*this, II);
   }
   return None;
+}
+
+void InstCombiner::setVulkanFriendly(bool Boolean) {
+  ::VulkanFriendly = Boolean;
 }
 
 Optional<Value *> InstCombiner::targetSimplifyDemandedUseBitsIntrinsic(
@@ -3902,6 +3906,7 @@ static bool combineInstructionsOverFunction(
 
   // Iterate while there is work to do.
   unsigned Iteration = 0;
+
   while (true) {
     ++NumWorklistIterations;
     ++Iteration;

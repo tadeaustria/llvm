@@ -212,6 +212,7 @@ PassManagerBuilder::PassManagerBuilder() {
     PerformThinLTO = EnablePerformThinLTO;
     DivergentTarget = false;
     CallGraphProfile = true;
+    StructurizeCFG = false;
 }
 
 PassManagerBuilder::~PassManagerBuilder() {
@@ -928,6 +929,11 @@ void PassManagerBuilder::populateModulePassManager(
   }
 
   MPM.add(createAnnotationRemarksLegacyPass());
+  
+  if (StructurizeCFG) {
+    MPM.add(createLoopSimplifyPass());
+    MPM.add(createStructurizeCFGPass());
+  }
 }
 
 void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {

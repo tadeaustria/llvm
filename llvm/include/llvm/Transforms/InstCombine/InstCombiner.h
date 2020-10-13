@@ -353,6 +353,10 @@ public:
                   UndefValue::get(Type::getInt1PtrTy(Ctx)), InsertAt);
   }
 
+  /// Set Parameter that instruction combinations are made
+  /// vulkan friendly
+  static void setVulkanFriendly(bool Value);
+
   void addToWorklist(Instruction *I) { Worklist.push(I); }
 
   AssumptionCache &getAssumptionCache() const { return AC; }
