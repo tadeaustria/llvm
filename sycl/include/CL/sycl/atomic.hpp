@@ -222,30 +222,32 @@ public:
         Ptr, SpirvScope, detail::getSPIRVMemorySemanticsMask(Order), Operand);
   }
 
-#ifdef __SYCL_DEVICE_ONLY__
-  template <typename T2 = T>
-  detail::enable_if_t<!std::is_same<cl_float, T2>::value, T>
-  load(memory_order Order = memory_order::relaxed) const {
-    return __spirv_AtomicLoad(Ptr, SpirvScope,
-                              detail::getSPIRVMemorySemanticsMask(Order));
-  }
-  template <typename T2 = T>
-  detail::enable_if_t<std::is_same<cl_float, T2>::value, T>
-  load(memory_order Order = memory_order::relaxed) const {
-    auto *TmpPtr =
-        reinterpret_cast<typename multi_ptr<cl_int, addressSpace>::pointer_t>(
-            Ptr);
-    cl_int TmpVal = __spirv_AtomicLoad(
-        TmpPtr, SpirvScope, detail::getSPIRVMemorySemanticsMask(Order));
-    cl_float ResVal = detail::bit_cast<cl_float>(TmpVal);
-    return ResVal;
-  }
-#else
+// Why does OPEN_CL need this? SPV specs says that OpAtomicLoad can be done 
+// with float and int.
+// #ifdef __SYCL_DEVICE_ONLY__
+//   template <typename T2 = T>
+//   detail::enable_if_t<!std::is_same<cl_float, T2>::value, T>
+//   load(memory_order Order = memory_order::relaxed) const {
+//     return __spirv_AtomicLoad(Ptr, SpirvScope,
+//                               detail::getSPIRVMemorySemanticsMask(Order));
+//   }
+//   template <typename T2 = T>
+//   detail::enable_if_t<std::is_same<cl_float, T2>::value, T>
+//   load(memory_order Order = memory_order::relaxed) const {
+//     auto *TmpPtr =
+//         reinterpret_cast<typename multi_ptr<cl_int, addressSpace>::pointer_t>(
+//             Ptr);
+//     cl_int TmpVal = __spirv_AtomicLoad(
+//         TmpPtr, SpirvScope, detail::getSPIRVMemorySemanticsMask(Order));
+//     cl_float ResVal = detail::bit_cast<cl_float>(TmpVal);
+//     return ResVal;
+//   }
+// #else
   T load(memory_order Order = memory_order::relaxed) const {
     return __spirv_AtomicLoad(Ptr, SpirvScope,
                               detail::getSPIRVMemorySemanticsMask(Order));
   }
-#endif
+//#endif
 
   T exchange(T Operand, memory_order Order = memory_order::relaxed) {
     return __spirv_AtomicExchange(
