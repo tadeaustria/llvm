@@ -3230,7 +3230,7 @@ bool LLVMToSPIRV::translate() {
 
   BM->resolveUnknownStructFields();
   BM->createForwardPointers();
-  DbgTran->transDebugMetadata();
+  //DbgTran->transDebugMetadata();
   return true;
 }
 
