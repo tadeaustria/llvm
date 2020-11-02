@@ -74,7 +74,8 @@ public:
 
 private:
   // By default assume the "worst" case
-  size_t MAlignment = 128;
+  // Vulkan worst case 4096
+  size_t MAlignment = 4096; 
 };
 } // namespace detail
 } // namespace sycl
