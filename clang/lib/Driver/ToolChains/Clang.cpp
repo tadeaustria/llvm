@@ -7834,8 +7834,8 @@ void OffloadWrapper::ConstructJob(Compilation &C, const JobAction &JA,
       if (A->getValue() == StringRef("image"))
         WrapperArgs.push_back(C.getArgs().MakeArgString("--emit-reg-funcs=0"));
     } else if (TT.getVendor() == llvm::Triple::VendorType::Vulkan) {
-      TargetTripleOpt.append("_");
-      TargetTripleOpt.append(TT.getVendorName());
+      // overwrite for vulkan to get unique name
+      TargetTripleOpt = TT.getVendorName();
     }
     // Grab any Target specific options that need to be added to the wrapper
     // information.
