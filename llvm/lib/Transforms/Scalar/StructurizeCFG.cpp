@@ -280,18 +280,22 @@ class StructurizeCFG {
 
   void addPhiValues(BasicBlock *From, BasicBlock *To);
 
+  void replacePhiValues(BasicBlock *From, BasicBlock *To, BasicBlock *In);
+
   void setPhiValues();
 
   void simplifyAffectedPhis();
 
   void killTerminator(BasicBlock *BB);
+  void transferTerminator(BasicBlock *From, BasicBlock *To);
 
   void changeExit(RegionNode *Node, BasicBlock *NewExit,
                   bool IncludeDominator);
 
-  BasicBlock *getNextFlow(BasicBlock *Dominator);
+  BasicBlock *getNextFlow(BasicBlock *Dominator, bool InsertAtEnd = false);
 
   BasicBlock *needPrefix(bool NeedEmpty);
+  BasicBlock *needPrefix2(bool NeedEmpty);
 
   BasicBlock *needPostfix(BasicBlock *Flow, bool ExitUseAllowed);
 
@@ -603,6 +607,24 @@ void StructurizeCFG::delPhiValues(BasicBlock *From, BasicBlock *To) {
   }
 }
 
+/// TODO
+void StructurizeCFG::replacePhiValues(BasicBlock *From, BasicBlock *To,
+                                      BasicBlock *In) {
+  //PhiMap &Map = DeletedPhis[To];
+  for (PHINode &Phi : In->phis()) {
+    //bool Recorded = false;
+    //while (Phi.getBasicBlockIndex(From) != -1) {
+      //Value *Deleted = Phi.removeIncomingValue(From, false);
+    Phi.replaceIncomingBlockWith(From, To);
+      //Map[&Phi].push_back(std::make_pair(From, Deleted));
+      /*if (!Recorded) {
+        AffectedPhis.push_back(&Phi);
+        Recorded = true;
+      }*/
+    //}
+  }
+}
+
 /// Add a dummy PHI value as soon as we knew the new predecessor
 void StructurizeCFG::addPhiValues(BasicBlock *From, BasicBlock *To) {
   for (PHINode &Phi : To->phis()) {
@@ -686,6 +708,21 @@ void StructurizeCFG::killTerminator(BasicBlock *BB) {
   Term->eraseFromParent();
 }
 
+/// Remove phi values from all successors and then remove the terminator.
+void StructurizeCFG::transferTerminator(BasicBlock *From, BasicBlock *To) {
+  BranchInst *Term = cast<BranchInst>(From->getTerminator());
+  if (!Term)
+    return;
+
+  for (succ_iterator SI = succ_begin(From), SE = succ_end(From); SI != SE; ++SI)
+    replacePhiValues(From, To, * SI);
+
+  //if (DA)
+  //  DA->removeValue(Term);
+  Term->removeFromParent();
+  To->getInstList().push_back(Term);
+}
+
 /// Let node exit(s) point to NewExit
 void StructurizeCFG::changeExit(RegionNode *Node, BasicBlock *NewExit,
                                 bool IncludeDominator) {
@@ -733,10 +770,10 @@ void StructurizeCFG::changeExit(RegionNode *Node, BasicBlock *NewExit,
 }
 
 /// Create a new flow node and update dominator tree and region info
-BasicBlock *StructurizeCFG::getNextFlow(BasicBlock *Dominator) {
+BasicBlock *StructurizeCFG::getNextFlow(BasicBlock *Dominator, bool InsertAtEnd) {
   LLVMContext &Context = Func->getContext();
-  BasicBlock *Insert = Order.empty() ? ParentRegion->getExit() :
-                       Order.back()->getEntry();
+  BasicBlock *Insert = Order.empty() || InsertAtEnd ? ParentRegion->getExit()
+                                                    : Order.back()->getEntry();
   BasicBlock *Flow = BasicBlock::Create(Context, FlowBlockName,
                                         Func, Insert);
   DT->addNewBlock(Flow, Dominator);
@@ -756,6 +793,27 @@ BasicBlock *StructurizeCFG::needPrefix(bool NeedEmpty) {
 
   // create a new flow node
   BasicBlock *Flow = getNextFlow(Entry);
+
+  // and wire it up
+  changeExit(PrevNode, Flow, true);
+  PrevNode = ParentRegion->getBBNode(Flow);
+  return Flow;
+}
+
+/// Create a new or reuse the previous node as flow node
+BasicBlock *StructurizeCFG::needPrefix2(bool NeedEmpty) {
+  BasicBlock *Entry = PrevNode->getEntry();
+
+  //if (!PrevNode->isSubRegion()) {
+    //killTerminator(Entry);
+  //  if (!NeedEmpty || Entry->getFirstInsertionPt() == Entry->end())
+  //    return Entry;
+  //}
+
+  // create a new flow node
+  BasicBlock *Flow = getNextFlow(Entry, true);
+
+  transferTerminator(Entry, Flow);
 
   // and wire it up
   changeExit(PrevNode, Flow, true);
@@ -854,8 +912,24 @@ void StructurizeCFG::handleLoops(bool ExitUseAllowed,
   RegionNode *Node = Order.back();
   BasicBlock *LoopStart = Node->getEntry();
 
+  //LLVM_DEBUG(dbgs() << "Handle Loop start: " << LoopStart->getName() << "\n");
+
   if (!Loops.count(LoopStart)) {
     wireFlow(ExitUseAllowed, LoopEnd);
+
+    //if (auto BI = cast<BranchInst>(LoopStart->getTerminator())) {
+    //  if (BI->isConditional() && BI->getSuccessor(0) != ParentRegion->getExit() &&
+    //      BI->getSuccessor(1) != ParentRegion->getExit()) {
+    //    // There is an Selection construct directly in the loop header
+    //    // this needs to be separated
+
+    //    auto blah = needPrefix2(LoopStart);
+    //    LLVM_DEBUG(dbgs() << "Inserted Header for: " << LoopStart->getName()
+    //                      << " named" << blah->getName()
+    //                      << "\n");
+    //  }
+    //}
+
     return;
   }
 
