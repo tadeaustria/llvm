@@ -203,8 +203,7 @@ bool Sema::isKnownGoodSYCLDecl(const Decl *D) {
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     const IdentifierInfo *II = FD->getIdentifier();
     const DeclContext *DC = FD->getDeclContext();
-    if (II && II->isStr("__spirv_ocl_printf") &&
-        !FD->isDefined() &&
+    if (II && II->isStr("__spirv_ocl_printf") && !FD->isDefined() &&
         FD->getLanguageLinkage() == CXXLanguageLinkage &&
         DC->getEnclosingNamespaceContext()->isTranslationUnit())
       return true;
@@ -2962,7 +2961,6 @@ public:
   using SyclKernelFieldHandler::leaveStruct;
 };
 
-
 // A type to Create and own the FunctionDecl for the kernel.
 // For VULKAN shaders
 class SyclShaderDeclCreator : public SyclKernelFieldHandler {
@@ -3097,13 +3095,92 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
     assert(InitMethod && "The accessor/sampler must have the __init method");
 
     auto &CTX = SemaRef.getASTContext();
+    /*auto blah = FieldTy->getAsCXXRecordDecl()->getDescribedClassTemplate();
+    auto foo = blah->getTemplateParameters();
+    if (foo->size() > 0)
+      printf("AccessType?: %s\n", foo->getParam(2)->getNameAsString().c_str());
+    else
+      printf("na: %s\n", blah->getNameAsString().c_str());*/
+    //printf("%s\n", isTypeLocalAccessor(FieldTy, CTX) ? "Is local accessor"
+    //                                                 : "Not local accessor");
 
     // Don't do -1 here because we count on this to be the first parameter
     // added (if any).
     size_t ParamIndex = Params.size();
     auto DataParam = InitMethod->getParamDecl(0);
-    assert((DataParam->getName().compare("Ptr") == 0) &&
-           "First Parameter of __init method must be data pointer");
+    //assert((DataParam->getName().compare("Ptr") == 0) &&
+    //       "First Parameter of __init method must be data pointer");
+
+    if (isTypeLocalAccessor(FieldTy, CTX)) {
+
+      // addParam(FD, DataParam->getType().getCanonicalType());
+      for (auto Param = InitMethod->parameters().begin() + 0;
+           Param != InitMethod->parameters().end(); Param++) {
+
+        auto NewStructType = CXXRecordDecl::Create(
+            CTX, TagTypeKind::TTK_Struct, CTX.getTranslationUnitDecl(),
+            SourceLocation(), SourceLocation(), FD->getIdentifier());
+        NewStructType->startDefinition();
+        NewStructType->setDeclName(
+            &CTX.Idents.get("_arg_" + std::to_string(Counter) + "_t"));
+
+        /*for (auto Param = InitMethod->parameters().begin() + 1;
+             Param != InitMethod->parameters().end(); Param++)
+          addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);*/
+        addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);
+
+        NewStructType->completeDefinition();
+
+        // Create new structure for each accessor
+        // use Extern linkage so it does not get a standard initializor
+
+        auto NewStruct = VarDecl::Create(
+            CTX, CTX.getTranslationUnitDecl(), SourceLocation(),
+            SourceLocation(), FD->getIdentifier(),
+            CTX.getAddrSpaceQualType(CTX.getTypeDeclType(NewStructType),
+                                     LangAS::opencl_global),
+            FD->getASTContext().getTrivialTypeSourceInfo(FieldTy), SC_Extern);
+
+        NewStruct->setDeclName(
+            &CTX.Idents.get("_arg_" + std::to_string(Counter++)));
+
+        if (false && Param == InitMethod->parameters().begin() + 1) {
+
+          Expr *DRE = SemaRef.BuildMemberExpr(
+              SemaRef.BuildDeclRefExpr(NewStruct,
+                                       CTX.getTypeDeclType(NewStructType),
+                                       VK_LValue, SourceLocation()),
+              false, SourceLocation(), nullptr, SourceLocation(),
+              *NewStructType->field_begin(),
+              DeclAccessPair::make(*NewStructType->field_begin(),
+                                   AccessSpecifier::AS_none),
+              false,
+              DeclarationNameInfo(NewStructType->field_begin()->getDeclName(),
+                                  SourceLocation()),
+              NewStructType->field_begin()->getType(), VK_LValue,
+              ExprObjectKind::OK_Ordinary);
+
+
+
+          printf(
+              "Addressspace %u\n",
+              (*InitMethod->parameters().begin())->getType().getAddressSpace());
+
+          auto ArrayType = SemaRef.BuildArrayType(
+              (*InitMethod->parameters().begin())->getType(),
+              ArrayType::ArraySizeModifier::Normal, DRE, 0, SourceLocation(),
+              (*InitMethod->parameters().begin())->getDeclName());
+          
+          /*auto ArrayType = CTX.getVariableArrayType(
+                  (*InitMethod->parameters().begin())->getType(), DRE, ArrayType::ArraySizeModifier::Normal, 0, SourceLocation());*/
+          auto NewArray = VarDecl::Create(
+              CTX, FD->getDeclContext(), SourceLocation(), SourceLocation(),
+              FD->getIdentifier(), ArrayType,
+              FD->getASTContext().getTrivialTypeSourceInfo(FieldTy), SC_Auto);
+
+          Params.push_back(NewArray);
+          FD->getDeclContext()->addDecl(NewArray);
+        }
 
     assert(!isTypeLocalAccessor(FieldTy, CTX) &&
            "Accessors to local memory is not yet supported in Vulkan Backend");
@@ -3121,7 +3198,12 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
 
       addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);
 
-      NewStructType->completeDefinition();
+        auto NewStructType = CXXRecordDecl::Create(
+            CTX, TagTypeKind::TTK_Struct, CTX.getTranslationUnitDecl(),
+            SourceLocation(), SourceLocation(), FD->getIdentifier());
+        NewStructType->startDefinition();
+        NewStructType->setDeclName(
+            &CTX.Idents.get("_arg_" + std::to_string(Counter) + "_t"));
 
       // Create new structure for each parameter of the accessor
       // use Extern linkage so it does not get a standard initializer
@@ -3132,8 +3214,8 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
                                    LangAS::opencl_global),
           FD->getASTContext().getTrivialTypeSourceInfo(FieldTy), SC_Extern);
 
-      NewStruct->setDeclName(
-          &CTX.Idents.get("_arg_" + std::to_string(Counter++)));
+        // Create new structure for each accessor
+        // use Extern linkage so it does not get a standard initializor
 
       // Add new Type and Structure to AST
       CTX.getTranslationUnitDecl()->addDecl(NewStructType);
@@ -3141,6 +3223,7 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
       Params.push_back(NewStruct);
       LastParamIndex = ParamIndex;
     }
+    fflush(stdout);
     return true;
   }
 
@@ -4592,8 +4675,7 @@ void Sema::finalizeSYCLDelayedAnalysis(const FunctionDecl *Caller,
   bool NotDefinedNoAttr = !Callee->isDefined() && !HasAttr;
 
   if (NotDefinedNoAttr && !Callee->getBuiltinID()) {
-    Diag(Loc, diag::err_sycl_restrict)
-        << Sema::KernelCallUndefinedFunction;
+    Diag(Loc, diag::err_sycl_restrict) << Sema::KernelCallUndefinedFunction;
     Diag(Callee->getLocation(), diag::note_previous_decl) << Callee;
     Diag(Caller->getLocation(), diag::note_called_by) << Caller;
   }
