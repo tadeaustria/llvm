@@ -191,6 +191,9 @@ public:
   template <class T> void addTo(std::vector<T *> &V, SPIRVEntry *E);
   SPIRVEntry *addEntry(SPIRVEntry *E) override;
   SPIRVBasicBlock *addBasicBlock(SPIRVFunction *, SPIRVId) override;
+  SPIRVBasicBlock *insertBasicBlockAfter(SPIRVFunction *Func,
+                                         SPIRVBasicBlock *After,
+                                         SPIRVId Id) override;
   SPIRVString *getString(const std::string &Str) override;
   SPIRVMemberName *addMemberName(SPIRVTypeStruct *ST, SPIRVWord MemberNumber,
                                  const std::string &Name) override;
@@ -976,6 +979,12 @@ SPIRVFunction *SPIRVModuleImpl::addFunction(SPIRVTypeFunction *FuncType,
 SPIRVBasicBlock *SPIRVModuleImpl::addBasicBlock(SPIRVFunction *Func,
                                                 SPIRVId Id) {
   return Func->addBasicBlock(new SPIRVBasicBlock(getId(Id), Func));
+}
+
+SPIRVBasicBlock *SPIRVModuleImpl::insertBasicBlockAfter(SPIRVFunction *Func,
+                                                        SPIRVBasicBlock *After,
+                                                        SPIRVId Id) {
+  return Func->addBasicBlock(new SPIRVBasicBlock(getId(Id), Func), After);
 }
 
 const SPIRVDecorateGeneric *

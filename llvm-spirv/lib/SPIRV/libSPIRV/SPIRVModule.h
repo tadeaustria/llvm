@@ -188,6 +188,9 @@ public:
   virtual SPIRVEntry *addEntry(SPIRVEntry *) = 0;
   virtual SPIRVBasicBlock *addBasicBlock(SPIRVFunction *,
                                          SPIRVId Id = SPIRVID_INVALID) = 0;
+  virtual SPIRVBasicBlock *
+  insertBasicBlockAfter(SPIRVFunction *Func, SPIRVBasicBlock *After = nullptr,
+                        SPIRVId Id = SPIRVID_INVALID) = 0;
   virtual SPIRVString *getString(const std::string &Str) = 0;
   virtual SPIRVMemberName *addMemberName(SPIRVTypeStruct *ST,
                                          SPIRVWord MemberNumber,
