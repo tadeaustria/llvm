@@ -85,8 +85,33 @@ using namespace OCLUtil;
 
 namespace SPIRV {
 
+/// This function replaces all blocks in a given phi instruction
+/// due to the map
+/// @param[inout] PhiInstruction is the instruction to be changed
+/// @param[in] ReplaceMap map where the to changed Basic block is the key and it
+/// is replaced by the value
+void replaceBBsInPhi(
+    SPIRVPhi *PhiInstruction,
+    std::map<SPIRVBasicBlock *, SPIRVBasicBlock *> &ReplaceMap) {
+  std::vector<SPIRVValue *> newPairs;
+  bool ChangeDone = false;
+  PhiInstruction->foreachPair([&newPairs, &ReplaceMap, &ChangeDone](
+                                  SPIRVValue *Val, SPIRVBasicBlock *BB) {
+    newPairs.push_back(Val);
+    if (ReplaceMap.find(BB) != ReplaceMap.end()) {
+      newPairs.push_back(ReplaceMap[BB]);
+      ChangeDone = true;
+    } else {
+      newPairs.push_back(BB);
+    }
+  });
+  if (ChangeDone)
+    PhiInstruction->setPairs(newPairs);
+}
+
 LLVMToSPIRVVulkan::LLVMToSPIRVVulkan(SPIRVModule *SMod)
-    : LLVMToSPIRV(SMod), RuntimeArrayArguments(), LoopInfoObj() {}
+    : LLVMToSPIRV(SMod), RuntimeArrayArguments(), LoopInfoObj(),
+      PredecessorBBChangeMap() {}
 
 void LLVMToSPIRVVulkan::transFunction(Function *I) {
   SPIRVFunction *BF = transFunctionDecl(I);
@@ -136,7 +161,7 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
   PDominatorTree = PostDomAnalysis.run(*F, FAM);
   // generate the LoopInfoBase for the current function
   LoopInfoObj.releaseMemory();
-  LoopInfoObj.analyze(DominatorTree); 
+  LoopInfoObj.analyze(DominatorTree);
 
   // PDominatorTree.print(llvm::outs());
 
@@ -149,21 +174,21 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
     BM->setName(BF, F->getName().str());
   if (isKernel(F))
     BM->addEntryPoint(ExecutionModelGLCompute, BF->getId());
-    // FIXME: Think about a different location for this only be done once
-    //static bool Once = false;
-    //if (!Once) {
-    //  std::vector<SPIRVValue *> LocalSizeElements{3};
-    //  auto UIntType = BM->addIntegerType(32);
-    //  for (size_t i = 0; i < 3; i++) {
-    //    LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
-    //    LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
-    //  }
-    //  auto LocalSize =
-    //      BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
-    //  LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize,
-    //                                           BuiltInWorkgroupSize));
-    //  Once = true;
-    //}
+  // FIXME: Think about a different location for this only be done once
+  // static bool Once = false;
+  // if (!Once) {
+  //  std::vector<SPIRVValue *> LocalSizeElements{3};
+  //  auto UIntType = BM->addIntegerType(32);
+  //  for (size_t i = 0; i < 3; i++) {
+  //    LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
+  //    LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
+  //  }
+  //  auto LocalSize =
+  //      BM->addSpecCompositeConstant(WorkgroupSizeType, LocalSizeElements);
+  //  LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize,
+  //                                           BuiltInWorkgroupSize));
+  //  Once = true;
+  //}
 
   // Translate OpenCL/SYCL buffer_location metadata if it's attached to the
   // translated function declaration
@@ -242,7 +267,7 @@ bool LLVMToSPIRVVulkan::transAddressingMode() {
 
 bool LLVMToSPIRVVulkan::transExecutionMode() {
   // If Workgroup Size is not needed in shader execution
-  // it will not be generated. If not generated 
+  // it will not be generated. If not generated
   // generate it here, so passing workgroup size is possible
   if (!WorkgroupSizeAvailable) {
     std::vector<SPIRVValue *> LocalSizeElements{3};
@@ -276,11 +301,11 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
     assert(ST->isSized());
 
     SPIRVTypeStruct *Ret;
-    //if (InParameterStructure) {
+    // if (InParameterStructure) {
     //  Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
     //  Ret->addDecorate(DecorationBlock);
     //} else {
-      Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
+    Ret = reinterpret_cast<SPIRVTypeStruct *>(LLVMToSPIRV::transType(T));
     //}
 
     for (size_t I = 0; I < ST->getNumElements(); I++) {
@@ -304,7 +329,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
       InParameterStructure = true;
       auto Ret =
           reinterpret_cast<SPIRVTypePointer *>(LLVMToSPIRV::transType(T));
-      //if (Pt->getElementType()->isStructTy())
+      // if (Pt->getElementType()->isStructTy())
       //  Ret->getElementType()->addDecorate(DecorationBlock);
       InParameterStructure = false;
       return Ret;
@@ -347,7 +372,7 @@ SPIRVType *LLVMToSPIRVVulkan::transType(Type *T) {
 }
 
 /// This function traces back all GEP and Load commands
-/// and stacks the indices 
+/// and stacks the indices
 Value *backtrace(Value *V, std::stack<std::vector<Value *>> &indices) {
   if (auto GEP = dyn_cast<GetElementPtrInst>(V)) {
     indices.emplace();
@@ -363,7 +388,7 @@ Value *backtrace(Value *V, std::stack<std::vector<Value *>> &indices) {
 
 /// This functions gives the origin of a GEP, where
 /// origin will be a pointer to the outermost datastructure.
-/// Indices will be relevant indices 
+/// Indices will be relevant indices
 Value *backtrace(Value *V, std::vector<Value *> &indices,
                  std::vector<Value *> &origindices) {
 
@@ -371,9 +396,9 @@ Value *backtrace(Value *V, std::vector<Value *> &indices,
   // Use helper to find all the indices used
   Value *base = backtrace(V, IndicesStack);
 
-  // Traverse the indices backwards to find 
+  // Traverse the indices backwards to find
   // the 2nd layer which will be the access within a runtime array
-  // Recall that the first index in a LLVM GEP is not a 
+  // Recall that the first index in a LLVM GEP is not a
   // navigation into the structure, it only resolves the given
   // base pointer
   // Seperate 2nd layer accesses from the rest
@@ -397,10 +422,10 @@ Value *backtrace(Value *V, std::vector<Value *> &indices,
 /// translated. SPIRVForward should be created as place holder for these
 /// instructions and replaced later by the real instructions.
 /// Use CreateForward = true to indicate such situation.
-SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
-                                                           SPIRVBasicBlock *BB,
-                                                           bool CreateForward,
-                                                           FuncTransMode FuncTrans) {
+SPIRVValue *
+LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
+                                               bool CreateForward,
+                                               FuncTransMode FuncTrans) {
 
   auto containsRTArray = [&](Value *V) {
     auto TranslatedStructType =
@@ -438,9 +463,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
           LocalSizeElements[i] = BM->addSpecConstant(UIntType, 1);
           LocalSizeElements[i]->addDecorate(DecorationSpecId, 100 + i);
         }
-        auto LocalSize =
-            BM->addSpecCompositeConstant(transType(GV->getType()->getElementType()), LocalSizeElements);
-        LocalSize->addDecorate(new SPIRVDecorate(DecorationBuiltIn, LocalSize, Builtin));
+        auto LocalSize = BM->addSpecCompositeConstant(
+            transType(GV->getType()->getElementType()), LocalSizeElements);
+        LocalSize->addDecorate(
+            new SPIRVDecorate(DecorationBuiltIn, LocalSize, Builtin));
         mapValue(V, LocalSize);
         return LocalSize;
       }
@@ -455,15 +481,15 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
             transType(GV->getType()->getElementType()), GlobalOffsetElements);
         mapValue(V, GlobalOffset);
         return GlobalOffset;
-    }
+      }
       default:
         break;
       }
     }
 
     // Descriptor & Binding Decoration for input structures needed
-    auto TransValue =
-        LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward, FuncTrans);
+    auto TransValue = LLVMToSPIRV::transValueWithoutDecoration(
+        V, BB, CreateForward, FuncTrans);
     const char *ArgName = "_arg_";
     auto Pos = GV->getName().find(ArgName);
     if (Pos != std::string::npos) {
@@ -471,7 +497,9 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       auto ID = std::atoi(IDcString);
       TransValue->addDecorate(DecorationDescriptorSet, 0);
       TransValue->addDecorate(DecorationBinding, ID);
-      reinterpret_cast<SPIRVTypePointer*>(TransValue->getType())->getElementType()->addDecorate(DecorationBlock);
+      reinterpret_cast<SPIRVTypePointer *>(TransValue->getType())
+          ->getElementType()
+          ->addDecorate(DecorationBlock);
     }
     if (containsRTArray(V)) {
       RuntimeArrayArguments.push_back(V);
@@ -480,7 +508,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
   }
 
   if (CreateForward)
-    return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward, FuncTrans);
+    return LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward,
+                                                    FuncTrans);
 
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
     std::vector<SPIRVValue *> Indices;
@@ -515,16 +544,16 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       }
     }
 
-    // Backtrace the origin of the GEP
+    // Backtrace the original data object of the GEP
     std::vector<Value *> OtherIndices;
     std::vector<Value *> OrigIndices;
     Value *originGEP = backtrace(GEP, OtherIndices, OrigIndices);
 
-    // If the origin is a data structure containing a runtime array it 
+    // If the origin is a data structure containing a runtime array it
     // needs special handling
     if (std::find(RuntimeArrayArguments.begin(), RuntimeArrayArguments.end(),
                   originGEP) != RuntimeArrayArguments.end()) {
-      
+
       // Map all other than array accesses into translated data structure
       std::vector<SPIRVValue *> MyIndices;
       for (auto OrgIndex = OrigIndices.begin() + 1;
@@ -532,7 +561,7 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         MyIndices.push_back(LLVMToSPIRV::transValue(*OrgIndex, BB));
       }
 
-      // Aggregate the array accesses indices to one index and insert this 
+      // Aggregate the array accesses indices to one index and insert this
       // index to the second position
       if (OtherIndices.size() == 1) {
         // Here is no need for aggregation
@@ -544,10 +573,10 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
                                       MyIndices, BB, GEP->isInBounds()));
       } else if (OtherIndices.size() > 1) {
         // Create add instructions for index aggregation
-        auto addRes = BM->addBinaryInst(
-            OpIAdd, transType(OtherIndices[0]->getType()),
-            LLVMToSPIRV::transValue(OtherIndices[0], BB),
-            LLVMToSPIRV::transValue(OtherIndices[1], BB), BB);
+        auto addRes =
+            BM->addBinaryInst(OpIAdd, transType(OtherIndices[0]->getType()),
+                              LLVMToSPIRV::transValue(OtherIndices[0], BB),
+                              LLVMToSPIRV::transValue(OtherIndices[1], BB), BB);
         for (size_t i = 2; i < OtherIndices.size(); i++) {
           addRes = BM->addBinaryInst(
               OpIAdd, addRes->getType(), addRes,
@@ -571,11 +600,8 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
               std::string::npos) {
         auto accessedType =
             TypePointer->getElementType()->getStructElementType(0);
-        if (accessedType->isPointerTy()) { // Access to RuntimeArray?
-          //// Check if the the last index (the runtime array) is accessed
-          // SPIRVValue *LastIndex = Indices[Indices.size() - 1];
-          // if (auto constant = reinterpret_cast<SPIRVConstant *>(LastIndex)) {
-          //  if (constant->getZExtIntValue() == 3) {
+        if (accessedType->isPointerTy()) {
+          // Access to RuntimeArray?
           // If yes, add another index to access first element within the
           // runtime array to get a element pointer
           Indices.push_back(
@@ -620,21 +646,22 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
         // Well this is a special case, for the data pointer
         return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
       }
-    } else if (BitCastInst *BC = dyn_cast<BitCastInst>(Source)) {
+    } else if (isa<BitCastInst>(Source)) {
       // Actually should be a noop
       // LLVM again, optimizes first member accesses
       // and if they should be copied, both Source and Target
-      // will be accessed by integer pointer and be copied 
-      // (which does not work in SPIRV for vulkan because it cannot work with casted pointers)
+      // will be accessed by integer pointer and be copied
+      // (which does not work in SPIRV for vulkan because it cannot work with
+      // casted pointers)
       return mapValue(V, LLVMToSPIRV::transValue(Source, BB));
     }
     std::vector<SPIRVWord> MemoryAccess(1, 0);
     return mapValue(V, BM->addLoadInst(LLVMToSPIRV::transValue(Source, BB),
-                           MemoryAccess, BB));
+                                       MemoryAccess, BB));
   }
 
   if (StoreInst *SD = dyn_cast<StoreInst>(V)) {
-    //backtrace(SD->getPointerOperand(), SD->getValueOperand());
+    // backtrace(SD->getPointerOperand(), SD->getValueOperand());
     std::vector<llvm::Value *> Ind;
     std::vector<llvm::Value *> OrgInd;
 
@@ -676,34 +703,27 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
     // This "fix" instead uses for for-loop increment block
     // by simple label name match. This then has the back edge
     // and uses the same logic as original code
-    //if (Branch->isUnconditional()) {
-    //  // For "for" and "while" loops llvm.loop metadata is attached to
-    //  // an unconditional branch instruction.
-    //  // if (LoopControl != spv::LoopControlMaskNone) {
-    //  if (BB->getName().find(".inc") != std::string::npos) {
-    //    // SuccessorTrue is the loop header BB.
-    //    const SPIRVInstruction *Term = SuccessorTrue->getTerminateInstr();
-    //    if (Term && Term->getOpCode() == OpBranchConditional) {
-    //      const auto *Br = static_cast<const SPIRVBranchConditional *>(Term);
-    //      BM->addLoopMergeInst(Br->getFalseLabel()->getId(), // Merge Block
-    //                           BB->getId(),                  // Continue Target
-    //                           LoopControl, Parameters, SuccessorTrue);
-    //    } else {
-    //      if (BM->isAllowedToUseExtension(
-    //              ExtensionID::SPV_INTEL_unstructured_loop_controls)) {
-    //        // For unstructured loop we add a special loop control instruction.
-    //        // Simple example of unstructured loop is an infinite loop, that has
-    //        // no terminate instruction.
-    //        BM->addLoopControlINTELInst(LoopControl, Parameters, SuccessorTrue);
-    //      }
-    //    }
-    //  }
-    //  return mapValue(V, BM->addBranchInst(SuccessorTrue, BB));
-    //} else
+
+    // Look if actual Basic block is a Continue Block which got an extra
+    // continue exit.
+    if (PredecessorBBChangeMap.find(BB) != PredecessorBBChangeMap.end()) {
+      // If so, add the branch instruction to the additional block
+      // and branch from the actual block simple to the additional block
+      auto AdditionalContinueBlock = PredecessorBBChangeMap[BB];
+      auto ret = LLVMToSPIRV::transValueWithoutDecoration(
+          V, AdditionalContinueBlock, CreateForward, FuncTrans);
+      BM->addBranchInst(AdditionalContinueBlock, BB);
+      return ret;
+    }
+
     if (Branch->isUnconditional()) {
       auto Loop = LoopInfoObj.getLoopFor(Branch->getParent());
       auto BranchTranslated =
           LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
+      // Even though it is a unconditional branch, it is possible
+      // that the actual block is the header (target of a back edge) of
+      // some loop (e.g. do - while loop). If it is a header
+      // a merge instruction is needed
       if (Loop && Loop->getHeader() == Branch->getParent() &&
           Loop->getUniqueExitBlock()) {
         auto Continue = static_cast<SPIRVLabel *>(
@@ -722,12 +742,34 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       if (Loop && Loop->getHeader() == Branch->getParent() &&
           Loop->getUniqueExitBlock()) {
         // actual block is actually a loop block
-        // however, it may be possible that a loop header 
+        // however, it may be possible that a loop header
         // ends with an if branching
         auto Continue = static_cast<SPIRVLabel *>(
             LLVMToSPIRV::transValue(Loop->getLoopLatch(), BB));
         auto Merge = static_cast<SPIRVLabel *>(
             LLVMToSPIRV::transValue(Loop->getUniqueExitBlock(), BB));
+
+        // Hard insert an extra block after the original ContinueBlock
+        // This prevents that the continue block is also a merge block
+        // of an if. This is not allowed in vulkan SPIRV
+        // Do only if continue block is not itself <- small loop
+        auto BBNewContinue = BB;
+        if (Continue != BB) {
+          static unsigned int j = 0;
+          std::string NewName("ContinueBlock");
+          NewName.append(std::to_string(j++));
+          BBNewContinue = BM->insertBasicBlockAfter(BB->getParent(), Continue);
+          PredecessorBBChangeMap[Continue] = BBNewContinue;
+        }
+
+        // After inserting the new Continue Block, adapt possible phi
+        // instructions in the header block to the new continue block
+        auto Instruction = BB->getInst(0);
+        while (Instruction->getOpCode() == Op::OpPhi) {
+          auto PhiInstruction = static_cast<SPIRVPhi *>(Instruction);
+          replaceBBsInPhi(PhiInstruction, PredecessorBBChangeMap);
+          Instruction = BB->getNext(Instruction);
+        }
 
         SPIRVValue *BranchTranslated = nullptr;
         // If neither of the successors of the loop header is the
@@ -737,36 +779,42 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
           // in this case, add additional Block for if header due to spirv
           // specification
           static unsigned int i = 0;
-          std::string NewName("InsertBlock ");
+          std::string NewName("InsertBlock");
           NewName.append(std::to_string(i++));
-          auto BBNew = BM->addBasicBlock(BB->getParent());
-          BM->setName(BBNew, NewName.c_str());
-          BM->addBranchInst(BBNew, BB);
+          auto BBIfHeader = BM->insertBasicBlockAfter(BB->getParent(), BB);
+          BM->setName(BBIfHeader, NewName.c_str());
+          BM->addBranchInst(BBIfHeader, BB);
+          // Add Block to ChangeMap so future generated Phi instructions
+          // will use the inserted header instead of the original
+          PredecessorBBChangeMap[BB] = BBIfHeader;
 
+          // Find merge block of if
           if (auto Dominator = PDominatorTree.findNearestCommonDominator(
                   Branch->getSuccessor(0), Branch->getSuccessor(1))) {
             BM->addSelectionMergeInst(
-                LLVMToSPIRV::transValue(Dominator, BBNew)->getId(),
-                /*SelectionControl None*/ 0, BBNew);
+                LLVMToSPIRV::transValue(Dominator, BBIfHeader)->getId(),
+                /*SelectionControl None*/ 0, BBIfHeader);
           } else {
             assert(false && "No Common Dominator for Branch found");
           }
 
-          BranchTranslated =
-              LLVMToSPIRV::transValueWithoutDecoration(V, BBNew, CreateForward);
+          BranchTranslated = LLVMToSPIRV::transValueWithoutDecoration(
+              V, BBIfHeader, CreateForward);
         } else {
           // When adding LoopMergeInst the branch instruction must be already
-          // terminator instruction of the block; therefore emit this before
+          // terminator instruction of the block, therefore emit this before
           BranchTranslated =
               LLVMToSPIRV::transValueWithoutDecoration(V, BB, CreateForward);
         }
-        BM->addLoopMergeInst(Merge->getId(),    // Merge Block
-                             Continue->getId(), // Continue Target
+        // Finally add merge instruction for loop
+        BM->addLoopMergeInst(Merge->getId(),         // Merge Block
+                             BBNewContinue->getId(), // Continue Target
                              LoopControl, Parameters, BB);
         return BranchTranslated;
       } else {
         // Emit selection merge instruction, if either not in loop
-        // or be sure that it is not the loop branching, by looking for loop exit block
+        // or be sure that it is not the loop branching, by looking for loop
+        // exit block
         if (!Loop || (Branch->getSuccessor(0) != Loop->getUniqueExitBlock() &&
                       Branch->getSuccessor(1) != Loop->getUniqueExitBlock())) {
           if (auto Dominator = PDominatorTree.findNearestCommonDominator(
@@ -781,8 +829,19 @@ SPIRVValue *LLVMToSPIRVVulkan::transValueWithoutDecoration(Value *V,
       }
     }
   }
+
+  if (auto Phi = dyn_cast<PHINode>(V)) {
+    // Translate phi instruction
+    auto TranslatedPhi =
+        static_cast<SPIRVPhi *>(LLVMToSPIRV::transValueWithoutDecoration(
+            Phi, BB, CreateForward, FuncTrans));
+    // Replace possible income blocks, where a additional block was inserted
+    replaceBBsInPhi(TranslatedPhi, PredecessorBBChangeMap);
+    return TranslatedPhi;
+  }
+
   // This was a test to fix OpAll but it does not work in OpenCL either
-  //if (CallInst *Call = dyn_cast<CallInst>(V)) {
+  // if (CallInst *Call = dyn_cast<CallInst>(V)) {
   //  StringRef DemangledName;
   //  if (oclIsBuiltin(Call->getFunction()->getName(), DemangledName) &&
   //      getSPIRVFuncOC(DemangledName) == OpAll) {
@@ -827,7 +886,7 @@ std::vector<SPIRVWord> LLVMToSPIRVVulkan::transValue(
                "For now works only for local variables");
 
         auto NewValue = BM->addVariable(
-            Value->getType(), false, internal::LinkageTypeInternal, 
+            Value->getType(), false, internal::LinkageTypeInternal,
             /*Initializer*/ nullptr, /*Name*/ "",
             SPIRVStorageClassKind::StorageClassFunction, BB);
         BM->addCopyMemoryInst(NewValue, Value,
@@ -1028,10 +1087,9 @@ SPIRVValue *LLVMToSPIRVVulkan::transIntrinsicInst(IntrinsicInst *II,
       Init = BM->addCompositeConstant(CompositeTy, Elts);
     }
     SPIRVType *VarTy = transType(PointerType::get(AT, SPIRV::SPIRAS_Private));
-    SPIRVValue *Var =
-        BM->addVariable(VarTy, /*isConstant*/ true,
-                        internal::LinkageTypeInternal,
-                        Init, "Test", StorageClassFunction, BB);
+    SPIRVValue *Var = BM->addVariable(VarTy, /*isConstant*/ true,
+                                      internal::LinkageTypeInternal, Init,
+                                      "Test", StorageClassFunction, BB);
     SPIRVType *SourceTy =
         transType(PointerType::get(Val->getType(), SPIRV::SPIRAS_Private));
     SPIRVValue *Source = BM->addUnaryInst(OpBitcast, SourceTy, Var, BB);
@@ -1080,10 +1138,10 @@ bool LLVMToSPIRVVulkan::isSkippable(Value *V, SPIRVBasicBlock *BB,
   //    return false;
   //  }
   //}
-  if (auto bitCast = dyn_cast<BitCastInst>(V)) {
-    if (bitCast->getType()->isPointerTy()) {
+  if (auto BitCast = dyn_cast<BitCastInst>(V)) {
+    if (BitCast->getType()->isPointerTy()) {
 
-      auto Elementtype = bitCast->getType()->getPointerElementType();
+      auto Elementtype = BitCast->getType()->getPointerElementType();
       if (Elementtype->isIntegerTy() && Elementtype->getIntegerBitWidth() == 8)
         return true;
       return false;
@@ -1091,6 +1149,10 @@ bool LLVMToSPIRVVulkan::isSkippable(Value *V, SPIRVBasicBlock *BB,
   }
 
   if (auto IntrinicI = dyn_cast<IntrinsicInst>(V)) {
+    // Skip Lifetime intrinsic, because not allowed for shaders
+    if (IntrinicI->isLifetimeStartOrEnd())
+      return true;
+
     switch (IntrinicI->getIntrinsicID()) {
     case Intrinsic::dbg_declare:
       return true;
@@ -1131,12 +1193,6 @@ bool LLVMToSPIRVVulkan::isSkippable(Value *V, SPIRVBasicBlock *BB,
   //  return opt->getPointerOperand()->getName().find(".addr") !=
   //         std::string::npos;
   //}
-  // Skip Lifetime intrinsic, because not allowed for shaders
-  if (auto intrinsic = dyn_cast<IntrinsicInst>(V)) {
-    if (intrinsic->isLifetimeStartOrEnd())
-      return true;
-    return false;
-  }
   return false;
 }
 
@@ -1155,7 +1211,7 @@ void LLVMToSPIRVVulkan::collectInputOutputVariables(SPIRVFunction *SF,
     if (AS != SPIRAS_Input && AS != SPIRAS_Output)
       continue;
 
-    // Exception added for WorkgroupSize, since it 
+    // Exception added for WorkgroupSize, since it
     // will be OpSpecConstant instead of OpVariable
     if (isBuiltIn(&GV, spv::BuiltInWorkgroupSize) ||
         isBuiltIn(&GV, spv::BuiltInGlobalOffset))

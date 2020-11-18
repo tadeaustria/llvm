@@ -70,11 +70,6 @@ public:
 
   virtual StringRef getPassName() const override { return "LLVMToSPIRVVulkan"; }
 
-  /*void getAnalysisUsage(AnalysisUsage &AU) const override {
-    LLVMToSPIRV::getAnalysisUsage(AU);
-    AU.addRequired<PostDominatorTreeWrapperPass>();
-  }*/
-
   bool transExecutionMode() override;
   SPIRVType *transType(Type *T) override;
 
@@ -115,6 +110,7 @@ protected:
   SPIRVType *WorkgroupSizeType = nullptr;
   llvm::LoopInfoBase<llvm::BasicBlock, llvm::Loop> LoopInfoObj;
   llvm::PostDominatorTree PDominatorTree;
+  std::map<SPIRVBasicBlock *, SPIRVBasicBlock *> PredecessorBBChangeMap;
 };
 
 } // Namespace SPIRV
