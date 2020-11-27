@@ -4330,7 +4330,7 @@ void Sema::ConstructVulkanKernel(FunctionDecl *KernelCallerFunc,
   SyclShaderBodyCreator kernel_body(*this, kernel_decl, KernelObj,
                                     KernelCallerFunc);
   SyclKernelIntHeaderCreator int_header(
-      *this, getSyclIntegrationHeader(), KernelObj,
+      *this, getSyclIntegrationHeader(true), KernelObj,
       calculateKernelNameType(Context, KernelCallerFunc), KernelName,
       StableName, KernelCallerFunc);
 
@@ -5104,7 +5104,8 @@ void SYCLIntegrationHeader::emit(raw_ostream &O) {
     O << "  __SYCL_DLL_LOCAL\n";
     O << "  static constexpr bool callsThisItem() { return ";
     O << K.CallsThisItem << "; }\n";
-    O << "  static constexpr size_t getOffset() { return " << ArgumentOffset
+    O << "  static constexpr size_t getOffset() { return "
+      << (VulkanHeader ? ArgumentOffset : 0)
       << "; }\n";
     // Increment number of arguments, needed in Vulkan plugin
     for (auto Param : K.Params) {
@@ -5182,8 +5183,9 @@ void SYCLIntegrationHeader::setCallsThisItem(bool B) {
 
 SYCLIntegrationHeader::SYCLIntegrationHeader(DiagnosticsEngine &_Diag,
                                              bool _UnnamedLambdaSupport,
-                                             Sema &_S)
-    : UnnamedLambdaSupport(_UnnamedLambdaSupport), S(_S) {}
+                                             Sema &_S, bool VulkanHeader_)
+    : UnnamedLambdaSupport(_UnnamedLambdaSupport), S(_S),
+      VulkanHeader(VulkanHeader_) {}
 
 // -----------------------------------------------------------------------------
 // Utility class methods

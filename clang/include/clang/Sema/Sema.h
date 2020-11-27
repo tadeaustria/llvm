@@ -320,7 +320,7 @@ public:
 
 public:
   SYCLIntegrationHeader(DiagnosticsEngine &Diag, bool UnnamedLambdaSupport,
-                        Sema &S);
+                        Sema &S, bool VulkanHeader = false);
 
   /// Emits contents of the header into given stream.
   void emit(raw_ostream &Out);
@@ -414,6 +414,8 @@ private:
   bool UnnamedLambdaSupport;
 
   Sema &S;
+
+  bool VulkanHeader = false;
 };
 
 /// Keeps track of expected type during expression parsing. The type is tied to
@@ -12842,10 +12844,10 @@ public:
   llvm::SetVector<Decl *> &syclDeviceDecls() { return SyclDeviceDecls; }
 
   /// Lazily creates and returns SYCL integration header instance.
-  SYCLIntegrationHeader &getSyclIntegrationHeader() {
+  SYCLIntegrationHeader &getSyclIntegrationHeader(bool VulkanHeader = false) {
     if (SyclIntHeader == nullptr)
       SyclIntHeader = std::make_unique<SYCLIntegrationHeader>(
-          getDiagnostics(), getLangOpts().SYCLUnnamedLambda, *this);
+          getDiagnostics(), getLangOpts().SYCLUnnamedLambda, *this, VulkanHeader);
     return *SyclIntHeader.get();
   }
 
