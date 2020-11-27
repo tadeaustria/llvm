@@ -58,6 +58,7 @@
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/ADT/Triple.h"
 
 #ifndef _SPIRV_SUPPORT_TEXT_FMT
 #define _SPIRV_SUPPORT_TEXT_FMT
@@ -229,6 +230,14 @@ static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts,
   std::unique_ptr<Module> M =
       ExitOnErr(getOwningLazyBitcodeModule(std::move(MB), Context,
                                            /*ShouldLazyLoadMetadata=*/true));
+  SPIRV::TranslatorOpts NewOpts(Opts);
+  {
+    auto ModuleTriple = llvm::Triple(llvm::Twine(M->getTargetTriple()));
+    if (ModuleTriple.isVulkan()) {
+      isVulkan = true;
+      NewOpts.setMaxVersion(VersionNumber::SPIRV_1_3);
+    }
+  }
   ExitOnErr(M->materializeAll());
 
   if (OutputFile.empty()) {
@@ -244,9 +253,9 @@ static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts,
   bool Success = false;
   if (OutputFile != "-") {
     std::ofstream OutFile(OutputFile, std::ios::binary);
-    Success = writeSpirv(M.get(), Opts, OutFile, Err, isVulkan);
+    Success = writeSpirv(M.get(), NewOpts, OutFile, Err, isVulkan);
   } else {
-    Success = writeSpirv(M.get(), Opts, std::cout, Err, isVulkan);
+    Success = writeSpirv(M.get(), NewOpts, std::cout, Err, isVulkan);
   }
 
   if (!Success) {

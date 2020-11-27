@@ -104,6 +104,10 @@ public:
 
   void setMemToRegEnabled(bool Mem2Reg) { SPIRVMemToReg = Mem2Reg; }
 
+  void setMaxVersion(VersionNumber NewMaxVersion){
+    MaxVersion = NewMaxVersion;
+  }
+
   void setGenKernelArgNameMDEnabled(bool ArgNameMD) {
     GenKernelArgNameMD = ArgNameMD;
   }
