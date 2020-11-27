@@ -517,7 +517,6 @@ private:
     if (KI::getName() != nullptr && KI::getName()[0] != '\0') {
       // TODO support ESIMD in no-integration-header case too.
       MArgs.clear();
-      // FIXME: Do Offset only for Vulkan!
       extractArgsAndReqsFromLambda(MHostKernel->getPtr(), KI::getNumParams(),
                                    &KI::getParamDesc(0), KI::isESIMD(), KI::getOffset());
       MKernelName = KI::getName();

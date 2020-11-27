@@ -1132,6 +1132,9 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
     if (TI.getTriple().isNVPTX()) {
         Builder.defineMacro("__SYCL_NVPTX__", "1");
     }
+    if (TI.getTriple().getVendor() == llvm::Triple::VendorType::Vulkan) {
+      Builder.defineMacro("__SYCL_VULKAN__", "1");
+    }
   }
   if (LangOpts.SYCLExplicitSIMD)
     Builder.defineMacro("__SYCL_EXPLICIT_SIMD__", "1");
