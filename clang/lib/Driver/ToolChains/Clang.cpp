@@ -8084,33 +8084,32 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
     if (getToolChain().getTriple().getVendor() ==
         llvm::Triple::VendorType::Vulkan) {
       TranslatorArgs.push_back("--vulkan");
+      TranslatorArgs.push_back("--spirv-ext=+SPV_KHR_variable_pointers");
     } else {
       TranslatorArgs.push_back("-spirv-max-version=1.1");
-    }
-    TranslatorArgs.push_back("-spirv-debug-info-version=legacy");
-    // Prevent crash in the translator if input IR contains DIExpression
-    // operations which don't have mapping to OpenCL.DebugInfo.100 spec.
-    TranslatorArgs.push_back("-spirv-allow-extra-diexpressions");
-    if (C.getArgs().hasArg(options::OPT_fsycl_esimd))
-      TranslatorArgs.push_back("-spirv-allow-unknown-intrinsics");
+      TranslatorArgs.push_back("-spirv-debug-info-version=legacy");
+      if (C.getArgs().hasArg(options::OPT_fsycl_esimd))
+        TranslatorArgs.push_back("-spirv-allow-unknown-intrinsics");
 
-    // Disable SPV_INTEL_usm_storage_classes by default since it adds new
-    // storage classes that represent global_device and global_host address
-    // spaces, which are not supported for all targets. With the extension
-    // disable the storage classes will be lowered to CrossWorkgroup storage
-    // class that is mapped to just global address space. The extension is
-    // supposed to be enabled only for FPGA hardware.
-    std::string ExtArg("-spirv-ext=+all,-SPV_INTEL_usm_storage_classes");
-    if (getToolChain().getTriple().getSubArch() ==
-        llvm::Triple::SPIRSubArch_fpga) {
-      for (auto *A : TCArgs) {
-        if (A->getOption().matches(options::OPT_Xs_separate) ||
-            A->getOption().matches(options::OPT_Xs)) {
-          StringRef ArgString(A->getValue());
-          if (ArgString == "hardware" || ArgString == "simulation")
-            ExtArg = "-spirv-ext=+all";
+      // Disable SPV_INTEL_usm_storage_classes by default since it adds new
+      // storage classes that represent global_device and global_host address
+      // spaces, which are not supported for all targets. With the extension
+      // disable the storage classes will be lowered to CrossWorkgroup storage
+      // class that is mapped to just global address space. The extension is
+      // supposed to be enabled only for FPGA hardware.
+      std::string ExtArg("-spirv-ext=+all,-SPV_INTEL_usm_storage_classes");
+      if (getToolChain().getTriple().getSubArch() ==
+          llvm::Triple::SPIRSubArch_fpga) {
+        for (auto *A : TCArgs) {
+          if (A->getOption().matches(options::OPT_Xs_separate) ||
+              A->getOption().matches(options::OPT_Xs)) {
+            StringRef ArgString(A->getValue());
+            if (ArgString == "hardware" || ArgString == "simulation")
+              ExtArg = "-spirv-ext=+all";
+          }
         }
       }
+      TranslatorArgs.push_back(TCArgs.MakeArgString(ExtArg));
     }
   }
   for (auto I : Inputs) {
