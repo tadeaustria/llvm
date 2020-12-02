@@ -58,7 +58,7 @@ template <class KernelNameType> struct KernelInfo {
   static constexpr const char *getName() { return ""; }
   static constexpr bool isESIMD() { return 0; }
   static constexpr bool callsThisItem() { return false; }
-  static constexpr size_t getOffset() { return 0; }
+  static constexpr unsigned long getOffset() { return 0; }
 };
 #else
 template <char...> struct KernelInfoData {
@@ -70,7 +70,7 @@ template <char...> struct KernelInfoData {
   static constexpr const char *getName() { return ""; }
   static constexpr bool isESIMD() { return 0; }
   static constexpr bool callsThisItem() { return false; }
-  static constexpr size_t getOffset() { return 0; }
+  static constexpr unsigned long getOffset() { return 0; }
 };
 
 // C++14 like index_sequence and make_index_sequence

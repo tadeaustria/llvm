@@ -2976,6 +2976,25 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
   // Keeps track of whether we are currently handling fields inside a struct.
   int StructDepth = 0;
 
+  static bool isTypeLocalAccessor(QualType Type, ASTContext &Context) {
+    if (Type->getTypeClass() == Type::TypeClass::Elaborated) {
+      // unwrap the accessor type
+      auto SpecializationType = Type->getAs<ElaboratedType>()
+                                    ->desugar()
+                                    ->getAs<TemplateSpecializationType>();
+      // the fourth specialization argument of accessors is the access target
+      if (SpecializationType->getNumArgs() >= 4) {
+        Expr::EvalResult Result;
+        // FIXME: Change hard coded number to CL/SYCL/access/access.hpp:
+        // target::local
+        SpecializationType->getArg(3).getAsExpr()->EvaluateAsInt(Result,
+                                                                 Context);
+        return Result.Val.getInt().getSExtValue() == 2016;
+      }
+    }
+    return false;
+  }
+
   void addParam(const FieldDecl *FD, QualType FieldTy,
                 CXXRecordDecl *SomeStruct = nullptr) {
     const ConstantArrayType *CAT =
@@ -2996,32 +3015,25 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
   void addParam(ParamDesc NewParamDesc, QualType FieldTy,
                 CXXRecordDecl *SomeStruct) {
     if (SomeStruct) {
-      // Create a new ParmVarDecl based on the new info.
+      // Create a new VarDecl based on the new info.
       auto *NewParam = FieldDecl::Create(
           SemaRef.getASTContext(), SomeStruct, SourceLocation(),
           SourceLocation(), std::get<1>(NewParamDesc),
           std::get<0>(NewParamDesc), std::get<2>(NewParamDesc), nullptr, true,
           ICIS_CopyInit);
 
-      // NewParam->setScopeInfo(0, Params.size());
       NewParam->setIsUsed();
       NewParam->setAccess(AccessSpecifier::AS_public);
-      /*NewParam->addAttr(
-          SYCLDeviceAttr::CreateImplicit(SemaRef.getASTContext()));*/
 
-      // To See Parameters as Globals in AST
-      // SemaRef.getASTContext().getTranslationUnitDecl()->addDecl(NewParam);
       SomeStruct->addDecl(NewParam);
-      // Params.push_back(NewParam);
     } else {
-      // Create a new ParmVarDecl based on the new info.
+      // Create a new VarDecl based on the new info.
       auto *NewParam = VarDecl::Create(
           SemaRef.getASTContext(),
           SemaRef.getASTContext().getTranslationUnitDecl(), SourceLocation(),
           SourceLocation(), std::get<1>(NewParamDesc),
           std::get<0>(NewParamDesc), std::get<2>(NewParamDesc), SC_Extern);
 
-      // NewParam->setScopeInfo(0, Params.size());
       NewParam->setIsUsed();
       NewParam->addAttr(
           SYCLDeviceAttr::CreateImplicit(SemaRef.getASTContext()));
@@ -3093,12 +3105,13 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
     assert((DataParam->getName().compare("Ptr") == 0) &&
            "First Parameter of __init method must be data pointer");
 
-    // addParam(FD, DataParam->getType().getCanonicalType());
+    assert(!isTypeLocalAccessor(FieldTy, CTX) &&
+           "Accessors to local memory is not yet supported in Vulkan Backend");
+
     for (auto Param = InitMethod->parameters().begin();
          Param != InitMethod->parameters().end(); Param++) {
 
-      // addParam(FD, (*Param)->getType().getCanonicalType());
-
+      // Each shader parameter must be wrapped in a struct
       auto NewStructType = CXXRecordDecl::Create(
           CTX, TagTypeKind::TTK_Struct, CTX.getTranslationUnitDecl(),
           SourceLocation(), SourceLocation(), FD->getIdentifier());
@@ -3106,16 +3119,12 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
       NewStructType->setDeclName(
           &CTX.Idents.get("_arg_" + std::to_string(Counter) + "_t"));
 
-      /*for (auto Param = InitMethod->parameters().begin() + 1;
-           Param != InitMethod->parameters().end(); Param++)
-        addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);*/
       addParam(FD, (*Param)->getType().getCanonicalType(), NewStructType);
 
       NewStructType->completeDefinition();
 
-      // Create new structure for each accessor
-      // use Extern linkage so it does not get a standard initializor
-
+      // Create new structure for each parameter of the accessor
+      // use Extern linkage so it does not get a standard initializer
       auto NewStruct = VarDecl::Create(
           CTX, CTX.getTranslationUnitDecl(), SourceLocation(), SourceLocation(),
           FD->getIdentifier(),
@@ -3126,6 +3135,7 @@ class SyclShaderDeclCreator : public SyclKernelFieldHandler {
       NewStruct->setDeclName(
           &CTX.Idents.get("_arg_" + std::to_string(Counter++)));
 
+      // Add new Type and Structure to AST
       CTX.getTranslationUnitDecl()->addDecl(NewStructType);
       CTX.getTranslationUnitDecl()->addDecl(NewStruct);
       Params.push_back(NewStruct);
@@ -3177,13 +3187,9 @@ public:
     FunctionProtoType::ExtProtoInfo Info(CC_OpenCLKernel);
 
     SmallVector<QualType, 0> ArgTys;
-    // std::transform(std::begin(Params), std::end(Params),
-    //               std::back_inserter(ArgTys),
-    //               [](const ParmVarDecl *PVD) { return PVD->getType(); });
 
     QualType FuncType = Ctx.getFunctionType(Ctx.VoidTy, ArgTys, Info);
     KernelDecl->setType(FuncType);
-    // KernelDecl->setParams(Params);
 
     for (auto &param : Params) {
       SemaRef.addSyclDeviceDecl(param);
@@ -3221,7 +3227,8 @@ public:
     return true;
   }
 
-  bool handleSyclAccessorType(const CXXRecordDecl *XX, const CXXBaseSpecifier &BS,
+  bool handleSyclAccessorType(const CXXRecordDecl *XX,
+                              const CXXBaseSpecifier &BS,
                               QualType FieldTy) final {
 
     const auto *RecordDecl = FieldTy->getAsCXXRecordDecl();
@@ -3376,7 +3383,7 @@ public:
     CTX.getTranslationUnitDecl()->addDecl(NewStruct);
     LastParamIndex = Params.size();
     Params.push_back(NewStruct);
-    //addParam(FD, FieldTy);
+    // addParam(FD, FieldTy);
     return true;
   }
 
@@ -3417,7 +3424,7 @@ public:
 
   llvm::ArrayRef<VarDecl *> getParamVarDeclsForCurrentField() {
     return ArrayRef<VarDecl *>(std::begin(Params) + LastParamIndex,
-                                   std::end(Params));
+                               std::end(Params));
   }
   using SyclKernelFieldHandler::handleSyclHalfType;
   using SyclKernelFieldHandler::handleSyclSamplerType;
@@ -3508,11 +3515,12 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
 
   // Creates a DeclRefExpr to the ParmVar that represents the current field.
   Expr *createParamReferenceExpr() {
-    VarDecl *KernelParameter =
-        DeclCreator.getParamVarDeclsForCurrentField()[0];
+    VarDecl *KernelParameter = DeclCreator.getParamVarDeclsForCurrentField()[0];
 
     QualType ParamType = KernelParameter->getType();
     auto ParamField = ParamType->getAsCXXRecordDecl()->field_begin();
+    // Since every Parameter is wrapped in a structure, 
+    // the first memeber of that structure must be referenced
     Expr *DRE = SemaRef.BuildMemberExpr(
         SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
                                  SourceLocation()),
@@ -3528,8 +3536,7 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
   // Creates a DeclRefExpr to the ParmVar that represents the current pointer
   // field.
   Expr *createPointerParamReferenceExpr(QualType PointerTy, bool Wrapped) {
-    VarDecl *KernelParameter =
-        DeclCreator.getParamVarDeclsForCurrentField()[0];
+    VarDecl *KernelParameter = DeclCreator.getParamVarDeclsForCurrentField()[0];
 
     QualType ParamType = KernelParameter->getType();
     Expr *DRE = SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
@@ -3560,8 +3567,7 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
   }
 
   Expr *createSimpleArrayParamReferenceExpr(QualType ArrayTy) {
-    VarDecl *KernelParameter =
-        DeclCreator.getParamVarDeclsForCurrentField()[0];
+    VarDecl *KernelParameter = DeclCreator.getParamVarDeclsForCurrentField()[0];
     QualType ParamType = KernelParameter->getType();
     Expr *DRE = SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
                                          KernelCallerSrcLoc);
@@ -3571,30 +3577,30 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
     FieldDecl *ArrayField = *(WrapperStruct->field_begin());
     return buildMemberExpr(DRE, ArrayField);
   }
-  
-  Expr *createInitExpr(FieldDecl *FD) {
-    VarDecl *KernelParameter = DeclCreator.getParamVarDeclsForCurrentField()[0];
 
-    QualType ParamType = KernelParameter->getType();
-    auto ParamField = ParamType->getAsCXXRecordDecl()->field_begin();
-    Expr *DRE = SemaRef.BuildMemberExpr(
-        SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
-                                 SourceLocation()),
-        false, SourceLocation(), nullptr, SourceLocation(), *ParamField,
-        DeclAccessPair::make(*ParamField, AccessSpecifier::AS_none), false,
-        DeclarationNameInfo(ParamField->getDeclName(), SourceLocation()),
-        ParamField->getType(), VK_LValue, ExprObjectKind::OK_Ordinary);
+  //Expr *createInitExpr(FieldDecl *FD) {
+  //  VarDecl *KernelParameter = DeclCreator.getParamVarDeclsForCurrentField()[0];
 
-    /*Expr *DRE = SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
-                                         SourceLocation());*/
-    if (FD->getType()->isPointerType() &&
-        FD->getType()->getPointeeType().getAddressSpace() !=
-            ParamType->getPointeeType().getAddressSpace())
-      DRE = ImplicitCastExpr::Create(SemaRef.Context, FD->getType(),
-                                     CK_AddressSpaceConversion, DRE, nullptr,
-                                     VK_RValue, FPOptionsOverride());
-    return DRE;
-  }
+  //  QualType ParamType = KernelParameter->getType();
+  //  auto ParamField = ParamType->getAsCXXRecordDecl()->field_begin();
+  //  Expr *DRE = SemaRef.BuildMemberExpr(
+  //      SemaRef.BuildDeclRefExpr(KernelParameter, ParamType, VK_LValue,
+  //                               SourceLocation()),
+  //      false, SourceLocation(), nullptr, SourceLocation(), *ParamField,
+  //      DeclAccessPair::make(*ParamField, AccessSpecifier::AS_none), false,
+  //      DeclarationNameInfo(ParamField->getDeclName(), SourceLocation()),
+  //      ParamField->getType(), VK_LValue, ExprObjectKind::OK_Ordinary);
+
+  //  /*Expr *DRE = SemaRef.BuildDeclRefExpr(KernelParameter, ParamType,
+  //     VK_LValue, SourceLocation());*/
+  //  if (FD->getType()->isPointerType() &&
+  //      FD->getType()->getPointeeType().getAddressSpace() !=
+  //          ParamType->getPointeeType().getAddressSpace())
+  //    DRE = ImplicitCastExpr::Create(SemaRef.Context, FD->getType(),
+  //                                   CK_AddressSpaceConversion, DRE, nullptr,
+  //                                   VK_RValue, FPOptionsOverride());
+  //  return DRE;
+  //}
 
   // Returns 'true' if the thing we're visiting (Based on the FD/QualType pair)
   // is an element of an array.  This will determine whether we do
@@ -3705,24 +3711,19 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
     for (size_t I = 0; I < NumParams; ++I) {
       QualType ParamType = KernelParameters[I]->getType();
       auto ParamField = ParamType->getAsCXXRecordDecl()->field_begin();
-      // if (I == 0) {
-      //  // Data Pointer
-      //  QualType ParamTypePtr =
-      //      reinterpret_cast<ParmVarDecl *>(KernelParameters[I])
-      //          ->getOriginalType();
-      //  ParamDREs[I] = SemaRef.BuildDeclRefExpr(
-      //      KernelParameters[I], ParamTypePtr, VK_LValue, SourceLocation());
-      //} else {
+
       // Accessor Data
+      // Since every Parameter is wrapped in a structure,
+      // the first memeber of that structure must be referenced
       ParamDREs[I] = SemaRef.BuildMemberExpr(
           SemaRef.BuildDeclRefExpr(KernelParameters[I], ParamType, VK_LValue,
                                    SourceLocation()),
           false, SourceLocation(), nullptr, SourceLocation(), *ParamField,
           DeclAccessPair::make(*ParamField, AccessSpecifier::AS_none), false,
-          DeclarationNameInfo(ParamField->getDeclName(), SourceLocation()), // Check if Field can be replaced by ParamField
+          DeclarationNameInfo(
+              ParamField->getDeclName(),
+              SourceLocation()), // Check if Field can be replaced by ParamField
           ParamField->getType(), VK_LValue, ExprObjectKind::OK_Ordinary);
-      // ParamField++;
-      //}
     }
 
     MemberExpr *MethodME = buildMemberExpr(MemberExprBases.back(), Method);
@@ -3740,7 +3741,6 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
         SemaRef.Context, MethodME, ParamStmts, ResultTy, VK, KernelCallerSrcLoc,
         FPOptionsOverride()));
   }
-
 
   // Creates an empty InitListExpr of the correct number of child-inits
   // of this to append into.
@@ -3792,7 +3792,7 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
 
     return VD;
   }
-  
+
   // Default inits the type, then calls the init-method in the body.
   bool handleSpecialType(FieldDecl *FD, QualType Ty) {
     addFieldInit(FD, Ty, None,
@@ -3814,24 +3814,6 @@ class SyclShaderBodyCreator : public SyclKernelFieldHandler {
     createSpecialMethodCall(RecordDecl, InitMethodName, BodyStmts);
     return true;
   }
-  // bool handleSpecialType(FieldDecl *FD, QualType Ty) {
-  //  const auto *RecordDecl = Ty->getAsCXXRecordDecl();
-  //  // Perform initialization only if it is field of kernel object
-  //  if (MemberExprBases.size() == 2) {
-  //    InitializedEntity Entity =
-  //        InitializedEntity::InitializeMember(FD, &VarEntity);
-  //    // Initialize with the default constructor.
-  //    InitializationKind InitKind =
-  //        InitializationKind::CreateDefault(SourceLocation());
-  //    InitializationSequence InitSeq(SemaRef, Entity, InitKind, None);
-  //    ExprResult MemberInit = InitSeq.Perform(SemaRef, Entity, InitKind,
-  //    None); InitExprs.push_back(MemberInit.get());
-  //  }
-  //  createSpecialMethodCall(RecordDecl, MemberExprBases.back(),
-  //  InitMethodName,
-  //                          FD);
-  //  return true;
-  //}
 
 public:
   static constexpr const bool VisitInsideSimpleContainers = false;
@@ -3969,7 +3951,6 @@ public:
     addFieldMemberExpr(FD, Ty);
     return true;
   }
-
 
   bool leaveStruct(const CXXRecordDecl *, FieldDecl *FD, QualType Ty) final {
     --StructDepth;
@@ -4341,8 +4322,7 @@ void Sema::ConstructVulkanKernel(FunctionDecl *KernelCallerFunc,
 
 void Sema::ConstructOpenCLKernel(FunctionDecl *KernelCallerFunc,
                                  MangleContext &MC) {
-  if (getASTContext().getTargetInfo().getTriple().getVendor() ==
-      llvm::Triple::VendorType::Vulkan) {
+  if (getASTContext().getTargetInfo().getTriple().isVulkan()) {
     ConstructVulkanKernel(KernelCallerFunc, MC);
     return;
   }
@@ -5104,7 +5084,7 @@ void SYCLIntegrationHeader::emit(raw_ostream &O) {
     O << "  __SYCL_DLL_LOCAL\n";
     O << "  static constexpr bool callsThisItem() { return ";
     O << K.CallsThisItem << "; }\n";
-    O << "  static constexpr size_t getOffset() { return "
+    O << "  static constexpr unsigned long getOffset() { return "
       << (VulkanHeader ? ArgumentOffset : 0)
       << "; }\n";
     // Increment number of arguments, needed in Vulkan plugin
