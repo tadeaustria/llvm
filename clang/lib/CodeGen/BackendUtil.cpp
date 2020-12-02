@@ -678,7 +678,7 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   PMBuilder.PrepareForThinLTO = CodeGenOpts.PrepareForThinLTO;
   PMBuilder.PrepareForLTO = CodeGenOpts.PrepareForLTO;
   PMBuilder.RerollLoops = CodeGenOpts.RerollLoops;
-  if (TargetTriple.getVendor() == Triple::VendorType::Vulkan) {
+  if (TargetTriple.isVulkan()) {
     PMBuilder.StructurizeCFG = true;
     llvm::InstCombiner::setVulkanFriendly(true);
   }

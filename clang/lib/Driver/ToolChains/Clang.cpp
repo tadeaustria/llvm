@@ -7833,7 +7833,7 @@ void OffloadWrapper::ConstructJob(Compilation &C, const JobAction &JA,
       // functions
       if (A->getValue() == StringRef("image"))
         WrapperArgs.push_back(C.getArgs().MakeArgString("--emit-reg-funcs=0"));
-    } else if (TT.getVendor() == llvm::Triple::VendorType::Vulkan) {
+    } else if (TT.isVulkan()) {
       // overwrite for vulkan to get unique name
       TargetTripleOpt = TT.getVendorName();
     }
@@ -8080,9 +8080,7 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
   TranslatorArgs.push_back("-o");
   TranslatorArgs.push_back(Output.getFilename());
   if (getToolChain().getTriple().isSYCLDeviceEnvironment()) {
-    TranslatorArgs.push_back(TCArgs.MakeArgString(ExtArg));
-    if (getToolChain().getTriple().getVendor() ==
-        llvm::Triple::VendorType::Vulkan) {
+    if (getToolChain().getTriple().isVulkan()) {
       TranslatorArgs.push_back("--vulkan");
       TranslatorArgs.push_back("--spirv-ext=+SPV_KHR_variable_pointers");
     } else {

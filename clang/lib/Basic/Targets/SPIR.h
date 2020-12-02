@@ -83,7 +83,7 @@ public:
     VLASupported = false;
     LongWidth = LongAlign = 64;
     if (Triple.getEnvironment() == llvm::Triple::SYCLDevice) {
-      if (Triple.getVendor() == llvm::Triple::Vulkan) {
+      if (Triple.isVulkan()) {
         AddrSpaceMap = &VULKANAddrSpaceMap;
       } else {
         AddrSpaceMap = &SYCLAddrSpaceMap;
