@@ -84,8 +84,8 @@ bool BBSortPass::runImpl(Function &F, DominatorTree &DT) {
   LLVM_DEBUG(for (auto &bb : F) dbgs()
              << &bb << " ---------- " << bb.getName() << "\n");
   
-  std::map<const BasicBlock *, int> ordering;
-  for (int i = 0; i < vec.size(); ++i) {
+  std::map<const BasicBlock *, unsigned int> ordering;
+  for (unsigned int i = 0; i < vec.size(); ++i) {
     ordering[vec[i]] = i;
   }
 
