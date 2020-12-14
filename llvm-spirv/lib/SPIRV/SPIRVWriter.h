@@ -211,7 +211,7 @@ protected:
   virtual void transFunction(Function *I);
   virtual SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
 
-  static std::vector<SPIRVWord> LLVMToSPIRV::GetIntrinsicMemoryAccess(MemIntrinsic *MI);
+  static std::vector<SPIRVWord> GetIntrinsicMemoryAccess(MemIntrinsic *MI);
 
   bool isAnyFunctionReachableFromFunction(
       const Function *FS,
