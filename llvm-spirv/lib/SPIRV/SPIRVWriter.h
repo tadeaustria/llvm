@@ -117,11 +117,12 @@ public:
   void transVectorComputeMetadata(Function *F);
   void transFPGAFunctionMetadata(SPIRVFunction *BF, Function *F);
   bool transGlobalVariables();
+  static bool isEmptyLLVMModule(Module *M);
 
   Op transBoolOpCode(SPIRVValue *Opn, Op OC);
   // Translate LLVM module to SPIR-V module.
   // Returns true if succeeds.
-  bool translate();
+  virtual bool translate();
   virtual bool transExecutionMode();
   void transFPContract();
   SPIRVValue *transConstant(Value *V);

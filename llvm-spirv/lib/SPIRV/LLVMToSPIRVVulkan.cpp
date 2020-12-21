@@ -1204,6 +1204,63 @@ bool LLVMToSPIRVVulkan::isBuiltIn(Value *V, spv::BuiltIn builtIn) {
   return Builtin == builtIn;
 }
 
+// Copied from LLVMToSPIRV::translate
+// Only without Debug 
+bool LLVMToSPIRVVulkan::translate() {
+  BM->setGeneratorVer(KTranslatorVer);
+
+  if (isEmptyLLVMModule(M))
+    BM->addCapability(CapabilityLinkage);
+
+  if (!transSourceLanguage())
+    return false;
+  if (!transExtension())
+    return false;
+  if (!transBuiltinSet())
+    return false;
+  if (!transAddressingMode())
+    return false;
+  if (!transGlobalVariables())
+    return false;
+
+  for (auto &F : *M) {
+    auto FT = F.getFunctionType();
+    std::map<unsigned, Type *> ChangedType;
+    oclGetMutatedArgumentTypesByBuiltin(FT, ChangedType, &F);
+    mutateFuncArgType(ChangedType, &F);
+  }
+
+  // SPIR-V logical layout requires all function declarations go before
+  // function definitions.
+  std::vector<Function *> Decls, Defs;
+  for (auto &F : *M) {
+    if (isBuiltinTransToInst(&F) || isBuiltinTransToExtInst(&F) ||
+        F.getName().startswith(SPCV_CAST) ||
+        F.getName().startswith(LLVM_MEMCPY) ||
+        F.getName().startswith(SAMPLER_INIT))
+      continue;
+    if (F.isDeclaration())
+      Decls.push_back(&F);
+    else
+      Defs.push_back(&F);
+  }
+  for (auto I : Decls)
+    transFunctionDecl(I);
+  for (auto I : Defs)
+    transFunction(I);
+
+  if (!transMetadata())
+    return false;
+  if (!transExecutionMode())
+    return false;
+
+  BM->resolveUnknownStructFields();
+  BM->createForwardPointers();
+  // No debug info for Vulkan
+  // DbgTran->transDebugMetadata();
+  return true;
+}
+
 void LLVMToSPIRVVulkan::collectInputOutputVariables(SPIRVFunction *SF,
                                                     Function *F) {
   for (auto &GV : M->globals()) {

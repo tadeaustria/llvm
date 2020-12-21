@@ -3175,7 +3175,7 @@ void LLVMToSPIRV::transFunction(Function *I) {
   }
 }
 
-bool isEmptyLLVMModule(Module *M) {
+bool LLVMToSPIRV::isEmptyLLVMModule(Module *M) {
   return M->empty() &&      // No functions
          M->global_empty(); // No global variables
 }
@@ -3930,7 +3930,7 @@ bool isValidLLVMModule(Module *M, SPIRVErrorLog &ErrorLog) {
   if (!M)
     return false;
 
-  if (isEmptyLLVMModule(M))
+  if (LLVMToSPIRV::isEmptyLLVMModule(M))
     return true;
 
   Triple TT(M->getTargetTriple());

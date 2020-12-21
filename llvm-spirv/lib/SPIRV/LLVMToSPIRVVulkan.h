@@ -70,6 +70,8 @@ public:
 
   virtual StringRef getPassName() const override { return "LLVMToSPIRVVulkan"; }
 
+  bool translate() override;
+
   bool transExecutionMode() override;
   SPIRVType *transType(Type *T) override;
 
