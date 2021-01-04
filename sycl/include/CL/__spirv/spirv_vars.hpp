@@ -128,9 +128,6 @@ SYCL_EXTERNAL inline size_t __spirv_LocalInvocationId_z() {
 SYCL_EXTERNAL inline uint32_t __spirv_SubgroupSize() {
   return __spirv_BuiltInSubgroupSize;
 }
-SYCL_EXTERNAL inline uint32_t __spirv_SubgroupMaxSize() {
-  return __spirv_BuiltInSubgroupMaxSize;
-}
 SYCL_EXTERNAL inline uint32_t __spirv_NumSubgroups() {
   return __spirv_BuiltInNumSubgroups;
 }
@@ -142,6 +139,10 @@ SYCL_EXTERNAL inline uint32_t __spirv_SubgroupLocalInvocationId() {
 }
 
 #ifdef __SYCL_VULKAN__
+// Vulkan has no builtin for that
+SYCL_EXTERNAL inline uint32_t __spirv_SubgroupMaxSize() {
+  return __spirv_BuiltInSubgroupSize; //TODO: find equivalent for SubgroupMaxSize
+}
 
 // Vulkan offset is steps of workgroup sizes
 SYCL_EXTERNAL inline size_t __spirv_GlobalOffset_x() {
@@ -166,6 +167,9 @@ SYCL_EXTERNAL inline size_t __spirv_GlobalSize_z() {
 }
 
 #else
+SYCL_EXTERNAL inline uint32_t __spirv_SubgroupMaxSize() {
+  return __spirv_BuiltInSubgroupMaxSize;
+}
 
 SYCL_EXTERNAL inline size_t __spirv_GlobalSize_x() {
   return __spirv_BuiltInGlobalSize.x;
