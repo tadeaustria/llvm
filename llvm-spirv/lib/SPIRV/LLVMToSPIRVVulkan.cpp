@@ -150,19 +150,20 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
            "LLVM intrinsics shouldn't be called in SPIRV");
     return nullptr;
   }
-
-  // Using analysis pass
-  FunctionAnalysisManager FAM;
-  auto DomAnalysis = DominatorTreeAnalysis();
-  auto PostDomAnalysis = PostDominatorTreeAnalysis();
-  FAM.registerPass([&] { return DomAnalysis; });
-  FAM.registerPass([&] { return PostDomAnalysis; });
-  auto DominatorTree = DomAnalysis.run(*F, FAM);
-  PDominatorTree = PostDomAnalysis.run(*F, FAM);
-  // generate the LoopInfoBase for the current function
-  LoopInfoObj.releaseMemory();
-  LoopInfoObj.analyze(DominatorTree);
-
+  
+  if (!F->isDeclaration()) {
+    // Using analysis pass
+    FunctionAnalysisManager FAM;
+    auto DomAnalysis = DominatorTreeAnalysis();
+    auto PostDomAnalysis = PostDominatorTreeAnalysis();
+    FAM.registerPass([&] { return DomAnalysis; });
+    FAM.registerPass([&] { return PostDomAnalysis; });
+    auto DominatorTree = DomAnalysis.run(*F, FAM);
+    PDominatorTree = PostDomAnalysis.run(*F, FAM);
+    // generate the LoopInfoBase for the current function
+    LoopInfoObj.releaseMemory();
+    LoopInfoObj.analyze(DominatorTree);
+  }
   // PDominatorTree.print(llvm::outs());
 
   SPIRVTypeFunction *BFT = static_cast<SPIRVTypeFunction *>(
@@ -259,6 +260,7 @@ SPIRVFunction *LLVMToSPIRVVulkan::transFunctionDecl(Function *F) {
 bool LLVMToSPIRVVulkan::transAddressingMode() {
   BM->setAddressingModel(AddressingModelLogical);
   BM->addCapability(CapabilityVariablePointersStorageBuffer);
+  BM->addCapability(CapabilityGroupNonUniform);
   BM->addExtension(ExtensionID::SPV_KHR_variable_pointers);
   // BM->setMemoryModel(MemoryModelGLSL450);
   // BM->setSPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_3));
