@@ -453,9 +453,9 @@ template <> inline void SPIRVMap<BuiltIn, SPIRVCapVec>::init() {
   ADD_VEC_INIT(BuiltInEnqueuedWorkgroupSize, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInGlobalOffset, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInGlobalLinearId, {CapabilityKernel});
-  ADD_VEC_INIT(BuiltInSubgroupSize, {CapabilityKernel});
+  //ADD_VEC_INIT(BuiltInSubgroupSize, {CapabilityKernel});    // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(BuiltInSubgroupMaxSize, {CapabilityKernel});
-  ADD_VEC_INIT(BuiltInNumSubgroups, {CapabilityKernel});
+  //ADD_VEC_INIT(BuiltInNumSubgroups, {CapabilityKernel});    // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(BuiltInNumEnqueuedSubgroups, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInSubgroupId, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInSubgroupLocalInvocationId, {CapabilityKernel});
