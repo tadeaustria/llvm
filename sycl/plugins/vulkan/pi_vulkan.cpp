@@ -289,11 +289,16 @@ pi_result _pi_timeline_event::getProfilingInfo(pi_profiling_info param_name,
   }
   Context->Device->getQueryPoolResults(
       Execution->QueryPool.get(), QueryCounter, /*queryCount=*/1,
-      sizeof(Timestamp), &Timestamp, /*Stride=*/0,
+      sizeof(Timestamp), &Timestamp, /*Stride=*/sizeof(Timestamp),
       vk::QueryResultFlagBits::eWait | vk::QueryResultFlagBits::e64);
+  // Timestamp may not have full 64bit size, but specification 
+  // (timestampValidBits in https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/chap6.html#vkGetPhysicalDeviceQueueFamilyProperties)
+  // claims that "Bits outside the valid range are guaranteed to be zeros"
+  // so no bitmasking is needed, however it can limit the maximum 
+  // range of measurements
   return getInfo(param_value_size, param_value, param_value_size_ret,
-                 Timestamp *
-                     static_cast<decltype(Timestamp)>(limits.timestampPeriod));
+                 static_cast<decltype(Timestamp)>(Timestamp *
+                     static_cast<double>(limits.timestampPeriod)));
 }
 
 _pi_timeline_event::event_info_t
