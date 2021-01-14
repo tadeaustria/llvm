@@ -558,7 +558,7 @@ clang++ -fsycl -fsycl-targets=nvptx64-nvidia-cuda-sycldevice \
   simple-sycl-app.cpp -o simple-sycl-app-cuda.exe
 ```
 
-When building for Vukan, use the Vulkan target triple as follows:
+When building for Vulkan, use the Vulkan target triple as follows:
 
 ```bash
 clang++ -fsycl -fsycl-targets=spir64-vulkan-unknown-sycldevice \

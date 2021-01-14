@@ -1,3 +1,13 @@
+# Sylkan - A SYCL Platform targeting Vulkan compute
+
+This project is a research prototype implementation of Sylkan, which allows developers to leverage the high level abstrations of SYCL while targeting a wealth of Vulkan compute devices. 
+
+> :warning: This is an early research prototype. While simple SYCL programs should run without changes, various sophisticated features are not implemented. Sylkan should not be used for production purposes.
+
+For further information including compilation instructions see [GettingStartedGuide](sycl/doc/GetStartedGuide.md).
+
+Sylkan is based on Intel's open source DPC++ toolchain.
+
 # Intel Project for LLVM\* technology
 
 ## Introduction
