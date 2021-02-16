@@ -713,7 +713,7 @@ public:
     return getArch() == Triple::nvptx || getArch() == Triple::nvptx64;
   }
 
-  /// Tests whether the target is NVPTX (32- or 64-bit).
+  /// Tests whether the target is SPIR-V for Vulkan.
   bool isVulkan() const { return getVendor() == Triple::Vulkan; }
 
   /// Tests whether the target is AMDGCN

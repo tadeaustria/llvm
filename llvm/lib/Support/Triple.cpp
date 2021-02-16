@@ -537,7 +537,6 @@ static Triple::OSType parseOS(StringRef OSName) {
     .StartsWith("aix", Triple::AIX)
     .StartsWith("cuda", Triple::CUDA)
     .StartsWith("nvcl", Triple::NVCL)
-    //.StartsWith("vulkan", Triple::Vulkan)
     .StartsWith("amdhsa", Triple::AMDHSA)
     .StartsWith("ps4", Triple::PS4)
     .StartsWith("elfiamcu", Triple::ELFIAMCU)
