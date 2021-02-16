@@ -45,8 +45,6 @@
 
 static_assert(VK_HEADER_VERSION >= 141, "Vulkan Header Version too low");
 
-const char SupportedVersion[] = _PI_H_VERSION_STRING;
-
 RENDERDOC_API_1_1_2 *rdoc_api = NULL;
 
 // Want all the needed casts be explicit, do not define conversion operators.
@@ -149,6 +147,14 @@ pi_result mapVulkanErrToCLErr(const vk::SystemError &result) {
   return mapVulkanErrToCLErr(static_cast<vk::Result>(result.code().value()));
 }
 
+/// Determines the best fitting queue, with including required flag
+/// and tries to omit queues with excluding flags. If none such queue
+/// was found, another search with ignoring excluding flags is done
+/// \param[in] physicalDevice Physical device whichs queues are searched
+/// \param[out] queueFamilyIndex Returning Parameter of the FamiliyIndex of found queue
+/// \param[in] include including flags for searching a valid queue
+/// \param[in] exclude exclusive flags for searching a valid queue. 
+///                Ignored if no queue with inclusiv but without exclusive flag exists.
 vk::Result getBestQueueNPH(vk::PhysicalDevice &physicalDevice,
                            uint32_t &queueFamilyIndex, vk::QueueFlags include,
                            vk::QueueFlags exclude) {
@@ -178,6 +184,75 @@ vk::Result getBestQueueNPH(vk::PhysicalDevice &physicalDevice,
   return vk::Result::eErrorInitializationFailed;
 }
 
+/// ------ Error handling, matching OpenCL plugin semantics.
+__SYCL_INLINE_NAMESPACE(cl) {
+  namespace sycl {
+  namespace detail {
+  namespace pi {
+
+  // Report error and no return (keeps compiler from printing warnings).
+  // TODO: Probably change that to throw a catchable exception,
+  //       but for now it is useful to see every failure.
+  //
+  [[noreturn]] __SYCL_EXPORT void die(const char *Message) {
+    std::cerr << "pi_die: " << Message << std::endl;
+    std::terminate();
+  }
+
+  // void assertion(bool Condition, const char *Message) {
+  //  if (!Condition)
+  //    die(Message);
+  //}
+
+  } // namespace pi
+
+  __SYCL_EXPORT const char *stringifyErrorCode(cl_int error) {
+    return "Vulkan Error Code (not implemented)";
+  }
+
+  } // namespace detail
+
+  const char *exception::what() const noexcept { return MMsg.c_str(); }
+
+  } // namespace sycl
+} // __SYCL_INLINE_NAMESPACE(cl)
+
+// Convenience macro makes source code search easier
+#define VLK(pi_api) Vulkan##pi_api
+
+extern "C" {
+// Predefine
+pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
+                                 size_t size, void *host_ptr, pi_mem *ret_mem,
+                                 const pi_mem_properties *properties = nullptr);
+pi_result VLK(piMemRetain)(pi_mem mem);
+pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
+                                       pi_bool blocking_write, size_t offset,
+                                       size_t size, const void *ptr,
+                                       pi_uint32 num_events_in_wait_list,
+                                       const pi_event *event_wait_list,
+                                       pi_event *event);
+pi_result VLK(piEnqueueMemBufferMap)(pi_queue command_queue, pi_mem memobj,
+                                     pi_bool blocking_map,
+                                     cl_map_flags map_flags, size_t offset,
+                                     size_t size,
+                                     pi_uint32 num_events_in_wait_list,
+                                     const pi_event *event_wait_list,
+                                     pi_event *event, void **ret_map);
+pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
+                                 void *mapped_ptr,
+                                 pi_uint32 num_events_in_wait_list,
+                                 const pi_event *event_wait_list,
+                                 pi_event *event);
+pi_result VLK(piEventRetain)(pi_event event);
+}
+
+/* 
+----------------------------------------------------------
+Implementation Internal Helping Structures
+----------------------------------------------------------
+*/
+
 void _pi_mem::allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
                           vk::Buffer &BufferTarget,
                           vk::DeviceMemory &MemoryTarget, void *host_ptr) {
@@ -192,6 +267,7 @@ void _pi_mem::allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
           vk::ImportMemoryHostPointerInfoEXT()};
 
   // If Host Pointer is given, import it
+  // Validity for import must already be ensured here
   if (host_ptr) {
     AllocInfo.get<vk::ImportMemoryHostPointerInfoEXT>().setHandleType(
         vk::ExternalMemoryHandleTypeFlagBitsKHR::eHostAllocationEXT);
@@ -207,14 +283,6 @@ void _pi_mem::allocMemory(vk::Buffer &Buffer, uint32_t MemoryTypeIndex,
 }
 
 void lateFree(pi_context Context_, _pi_execution *Execution, uint64_t waitFor) {
-  vk::DispatchLoaderDynamic dldid(Context_->PhDevice_->Platform_->Instance_,
-                                  vkGetInstanceProcAddr, *Context_->Device,
-                                  vkGetDeviceProcAddr);
-  Context_->Device->waitSemaphoresKHR(
-      vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlagsKHR(), 1,
-                               &Execution->Semaphore->Semaphore.get(),
-                               &waitFor),
-      UINT64_MAX, dldid);
 }
 
 _pi_execution::uptr_t
@@ -222,6 +290,7 @@ _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
               vk::ArrayProxy<const vk::BufferCopy> regions, bool isBlocking,
               pi_uint32 num_events, const pi_event *event_list) {
 
+  // Transferqueue is created for buffer copy
   auto TransferQueue =
       Context_->Device->getQueue(Context_->TransferQueueFamilyIndex, 0);
   _pi_execution::uptr_t Execution = std::make_unique<_pi_execution>(Context_);
@@ -241,6 +310,8 @@ _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   Execution->CommandBuffer->copyBuffer(from, to, regions);
   Execution->CommandBuffer->end();
 
+  // Dependencies of earlier events and memories are added 
+  // to ensure they are kept alive
   Execution->addAllEventsDependencies(num_events, event_list);
   Execution->MemoryReferences.emplace_back(this);
 
@@ -260,8 +331,16 @@ _pi_mem::copy(vk::Buffer &from, vk::Buffer &to,
   auto Result = TransferQueue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
                                      Execution->Fence.get());
   assert(Result == vk::Result::eSuccess && "Memory transfer not successful");
+  // Only if blocking is requested, wait for finish
   if (isBlocking) {
-    lateFree(Context_, Execution.get(), Counter);
+    vk::DispatchLoaderDynamic dldid(Context_->PhDevice_->Platform_->Instance_,
+                                    vkGetInstanceProcAddr, *Context_->Device,
+                                    vkGetDeviceProcAddr);
+    Context_->Device->waitSemaphoresKHR(
+        vk::SemaphoreWaitInfoKHR(vk::SemaphoreWaitFlagsKHR(), 1,
+                                 &Execution->Semaphore->Semaphore.get(),
+                                 &Counter),
+        UINT64_MAX, dldid);
   }
   return Execution;
 }
@@ -343,8 +422,23 @@ void _pi_timeline_event::setWaitingSemaphores(
   }
 }
 
+/// This method copies vulkan host memory to other host memory. 
+/// It is required if a host pointer was unable to be imported. Then
+/// The staging buffer must be copied to the original host pointer.
+/// If data is requestes asynchronously from device, this function 
+/// will asynchronously copy data from staging buffer to original host buffer.
+/// At the end of the local copy, this method will raise the 
+/// same Semaphore as it got with an increased value of 1.
+/// \param[in] memobj Related memory object
+/// \param[in] targetPtr Pointer where data should be copied to
+/// \param[in] size Size of the data 
+/// \param[in] offset Offset of the data 
+/// \param[in] semaphore Semaphore related to the previously started Device -> Staging buffer
+///        command. 
+/// \param[in] waitValue Value the previously started copy command will set once finished.
 void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
                _pi_semaphore::sptr_t semaphore, uint64_t waitValue) {
+  // Wait for previous copy Device -> Staging buffer command to finish
   vk::DispatchLoaderDynamic dldid(
       memobj->Context_->PhDevice_->Platform_->Instance_, vkGetInstanceProcAddr,
       *memobj->Context_->Device, vkGetDeviceProcAddr);
@@ -353,21 +447,21 @@ void localCopy(pi_mem memobj, void *targetPtr, size_t size, size_t offset,
                                &semaphore->Semaphore.get(), &waitValue),
       UINT64_MAX, dldid);
 
+  // Map Staging buffer and copy to host pointer
   void *BufferPtr =
       memobj->Context_->Device->mapMemory(memobj->HostMemory, offset, size);
-
-  if (std::memcpy(targetPtr, BufferPtr, size) != targetPtr) {
+    if (std::memcpy(targetPtr, BufferPtr, size) != targetPtr) {
     assert(false && "Error on Memcopy");
   }
   memobj->Context_->Device->unmapMemory(memobj->HostMemory);
 
-  // vk::SemaphoreSignalInfo SignalInfo(memobj->Context_->Timeline.get(),
-  // waitValue + 1);
+  // Final raise Semaphore with an increased value
   memobj->Context_->Device->signalSemaphoreKHR(
       vk::SemaphoreSignalInfoKHR(semaphore->Semaphore.get(), waitValue + 1),
       dldid);
 }
 
+/// Starts profiling and adds the first command to write timestamp
 vk::UniqueQueryPool enableProfiling(pi_queue Queue,
                                     vk::CommandBuffer &CommandBuffer) {
   vk::UniqueQueryPool QueryPool(nullptr);
@@ -382,6 +476,7 @@ vk::UniqueQueryPool enableProfiling(pi_queue Queue,
   return QueryPool;
 }
 
+/// If Profiling is enabled, adds the finishing timestamp command
 void writeFinishTimestamp(pi_queue Queue, vk::CommandBuffer &CommandBuffer,
                           vk::QueryPool QueryPool) {
   if (Queue->isProfilingEnabled()) {
@@ -390,72 +485,8 @@ void writeFinishTimestamp(pi_queue Queue, vk::CommandBuffer &CommandBuffer,
   }
 }
 
-/// ------ Error handling, matching OpenCL plugin semantics.
-__SYCL_INLINE_NAMESPACE(cl) {
-  namespace sycl {
-  namespace detail {
-  namespace pi {
-
-  // Report error and no return (keeps compiler from printing warnings).
-  // TODO: Probably change that to throw a catchable exception,
-  //       but for now it is useful to see every failure.
-  //
-  [[noreturn]] __SYCL_EXPORT void die(const char *Message) {
-    std::cerr << "pi_die: " << Message << std::endl;
-    std::terminate();
-  }
-
-  // void assertion(bool Condition, const char *Message) {
-  //  if (!Condition)
-  //    die(Message);
-  //}
-
-  } // namespace pi
-
-  __SYCL_EXPORT const char *stringifyErrorCode(cl_int error) {
-    return "Vulkan Error Code (not implemented)";
-  }
-
-  } // namespace detail
-
-  const char *exception::what() const noexcept { return MMsg.c_str(); }
-
-  } // namespace sycl
-} // __SYCL_INLINE_NAMESPACE(cl)
-
-// Convenience macro makes source code search easier
-#define VLK(pi_api) Vulkan##pi_api
-
-extern "C" {
-// Predefine
-pi_result VLK(piMemBufferCreate)(pi_context context, pi_mem_flags flags,
-                                 size_t size, void *host_ptr, pi_mem *ret_mem,
-                                 const pi_mem_properties *properties = nullptr);
-pi_result VLK(piMemRetain)(pi_mem mem);
-pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
-                                       pi_bool blocking_write, size_t offset,
-                                       size_t size, const void *ptr,
-                                       pi_uint32 num_events_in_wait_list,
-                                       const pi_event *event_wait_list,
-                                       pi_event *event);
-pi_result VLK(piEnqueueMemBufferMap)(pi_queue command_queue, pi_mem memobj,
-                                     pi_bool blocking_map,
-                                     cl_map_flags map_flags, size_t offset,
-                                     size_t size,
-                                     pi_uint32 num_events_in_wait_list,
-                                     const pi_event *event_wait_list,
-                                     pi_event *event, void **ret_map);
-pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
-                                 void *mapped_ptr,
-                                 pi_uint32 num_events_in_wait_list,
-                                 const pi_event *event_wait_list,
-                                 pi_event *event);
-pi_result VLK(piEventRetain)(pi_event event);
-}
-
 void _pi_execution::addEventDependency(pi_event event) {
-  /*VLK(piEventRetain)(event);
-  DependendEvents.push_back(event);*/
+  // Semaphores of previous events must be kept alive
   if (auto TimelineEvent = dynamic_cast<_pi_timeline_event *>(event))
     DependendSemaphores.push_back(TimelineEvent->Execution->Semaphore);
 }
@@ -501,6 +532,10 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj) {
       vk::ShaderStageFlagBits::eCompute};
 
   Arguments[InternalIndex] = *Memobj;
+  // If used memory is the first time used in a kernel
+  // move ownership of the initialization execution to 
+  // the kernel
+  // This ensures the kernel waits until initialization is done
   if (Arguments[InternalIndex]->InitExecution.get()) {
     AdditionalMemoryEvents.push_back(new _pi_timeline_event(
         Program_->Context_, std::move(Arguments[InternalIndex]->InitExecution),
@@ -513,6 +548,11 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj) {
 
 pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
                                   const void *arg_value) {
+  // TODO: Rethink this method. Each argument gets a buffer, but will be 
+  // reused for multiple kernel calls. This may be useful for depending
+  // consecutive calls, but for independent kernel calls, the 
+  // execution is blocked due to shared buffers. However, if 
+  // small value passing is redesigned, this may be neglectible anyway.
 
   auto InternalIndex = getInternalIndex(ArgIndex);
 
@@ -530,7 +570,8 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
     VLK(piMemBufferCreate)
     (Program_->Context_, PI_MEM_FLAGS_HOST_PTR_COPY, arg_size,
      const_cast<void *>(arg_value), &mem);
-
+    
+    // This ensures the kernel waits until initialization is done
     AdditionalMemoryEvents.push_back(new _pi_timeline_event(
         Program_->Context_, std::move(mem->InitExecution), 1ull));
 
@@ -540,8 +581,9 @@ pi_result _pi_kernel::addArgument(pi_uint32 ArgIndex, size_t arg_size,
     // Only update Buffer on device if data has changed, for performance boost
     void *HostMemory = Program_->Context_->Device->mapMemory(
         vec->second->HostMemory, 0, arg_size);
+    // If same value is already set -> skip
     if (memcmp(HostMemory, arg_value, arg_size) != 0) {
-      // Copy to Host buffer
+      // Copy to Stating buffer
       memcpy(HostMemory, arg_value, arg_size);
       // Enqueue copy to device
       // If memory is used in a call, wait for the job to finish
@@ -577,6 +619,9 @@ void _pi_queue::cleanupFinishedExecutions() {
 }
 
 vk::UniqueCommandBuffer _pi_queue::createCommandBuffer() {
+  // At every new command buffer try, to free memory of 
+  // previously finished executions, which are not 
+  // related to plugin events.
   cleanupFinishedExecutions();
 
   return std::move(
@@ -585,6 +630,12 @@ vk::UniqueCommandBuffer _pi_queue::createCommandBuffer() {
               CommandPool.get(), vk::CommandBufferLevel::ePrimary, 1u))
           .front());
 }
+
+/* 
+----------------------------------------------------------
+Implementation Plugin Functions
+----------------------------------------------------------
+*/
 
 extern "C" {
 
@@ -596,7 +647,6 @@ extern "C" {
     return {};                                                                 \
   }
 
-// Example of a PI interface that does not map exactly to an OpenCL one.
 pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
                               pi_uint32 *num_platforms) {
 
@@ -615,13 +665,10 @@ pi_result VLK(piPlatformsGet)(pi_uint32 num_entries, pi_platform *platforms,
 
     pi_result err = PI_SUCCESS;
 
+    // TODO: Think about putting this into PluginStartup and clean-up with TearDown
     std::call_once(
         InitFlag,
         [](pi_result &err) {
-    /*               if (cuInit(0) != VLK(SUCCESS) {
-                     NumPlatforms = 0;
-                     return;
-                   }*/
 #ifdef WIN32
           // At init, on windows
           if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
@@ -702,7 +749,6 @@ pi_result VLK(piPlatformGetInfo)(pi_platform platform,
   return {};
 }
 
-// Example of a PI interface that does not map exactly to an OpenCL one.
 pi_result VLK(piDevicesGet)(pi_platform platform, pi_device_type device_type,
                             pi_uint32 num_entries, pi_device *devices,
                             pi_uint32 *num_devices) {
@@ -794,7 +840,6 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
                    Properties.vendorID);
   }
   case PI_DEVICE_INFO_MAX_COMPUTE_UNITS: {
-
     auto CoreProperties =
         Chain.get<vk::PhysicalDeviceShaderCorePropertiesAMD>();
     // TODO: check if this is correct
@@ -869,11 +914,6 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
   }
   case PI_DEVICE_INFO_MAX_MEM_ALLOC_SIZE: {
     // Max size of memory object allocation in bytes.
-    // The minimum value is max(min(1024 � 1024 �
-    // 1024, 1/4th of CL_DEVICE_GLOBAL_MEM_SIZE),
-    // 32 � 1024 � 1024) for devices that are not of type
-    // CL_DEVICE_TYPE_CUSTOM.
-
     return getInfo(
         param_value_size, param_value, param_value_size_ret,
         pi_uint64{Chain.get<vk::PhysicalDeviceMaintenance3Properties>()
@@ -1100,12 +1140,8 @@ pi_result VLK(piDeviceGetInfo)(pi_device Device, pi_device_info param_name,
     return getInfo(param_value_size, param_value, param_value_size_ret, "");
   }
   case PI_DEVICE_INFO_EXTENSIONS: {
-    // std::vector<vk::ExtensionProperties> extensions =
-    //     Device->PhDevice.enumerateDeviceExtensionProperties();
-    // return getInfo(param_value_size, param_value, param_value_size_ret,
-    //                &extensions);
-    // Pretend Vulkan is capable of these extensions, since
-    // fallback SPIRV code is not Vulkan compatible yet
+    // TODO: Pretend Vulkan is capable of these extensions, since
+    // fallback SPIR-V code is not Vulkan compatible yet
     return getInfo(param_value_size, param_value, param_value_size_ret,
                    "cl_intel_devicelib_assert cl_intel_devicelib_math "
                    "cl_intel_devicelib_math_fp64 cl_intel_devicelib_complex "
@@ -1221,7 +1257,6 @@ pi_result VLK(piDevicePartition)(
 pi_result VLK(piDeviceRelease)(pi_device Device) {
   // No Release of Physical Devices possible in Vulkan
   // API. They are bound to the Instance
-  // delete Device;
   return PI_SUCCESS;
 }
 
@@ -1260,11 +1295,11 @@ pi_result VLK(piextDeviceSelectBinary)(pi_device Device,
     sycl::detail::pi::die("No storage for device binary index provided");
   }
 
-  // Look for an image for the SPIRV Image compatible for vulkan
-  // If SPV injection with environmental variable is required
+  // Look for an image for the SPIR-V Image compatible for vulkan
+  // If SPIR-V injection with environmental variable is required
   // also allow SPIRV64 binaries, since the loader
   // cannot differ between them if the MAGIC number is SPIRV in both cases
-  // TODO: Maybe use a SPIRV Reader and look for Shader capability and
+  // TODO: Maybe use a SPIR-V Reader and look for Shader capability and
   // compatible Memory model for clear differentiation
   for (pi_uint32 i = 0; i < num_binaries; i++) {
     if (strcmp(binaries[i]->DeviceTargetSpec,
@@ -1316,27 +1351,8 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   assert(retcontext != nullptr);
   pi_result Errcode_ret = PI_SUCCESS;
 
-  // What to do with these properties. How does CUDA got its own property?
-  //// Parse properties.
-  // bool property_VLK(primary = false;
-  // while (properties && (0 != *properties)) {
-  //  // Consume property ID.
-  //  pi_context_properties id = *properties;
-  //  ++properties;
-  //  // Consume property value.
-  //  pi_context_properties value = *properties;
-  //  ++properties;
-  //  switch (id) {
-  //  case PI_CONTEXT_PROPERTIES_VLK(PRIMARY:
-  //    assert(value == PI_FALSE || value == PI_TRUE);
-  //    property_VLK(primary = static_cast<bool>(value);
-  //    break;
-  //  default:
-  //    // Unknown property.
-  //    assert(!"Unknown piContextCreate property in property list");
-  //    return PI_INVALID_VALUE;
-  //  }
-  //}
+  // What to do with these properties. How did CUDA get its own property?
+  // Parse properties here.
 
   auto Device = devices[0];
   auto PhysicalDevice = Device->PhDevice;
@@ -1348,7 +1364,7 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   uint32_t ComputeQueueFamilyIndex = 0;
 
   // get the best index into queueFamiliyProperties which supports compute and
-  // stuff
+  // try excluding a graphics queue
   vk::Result VkRes = getBestQueueNPH(PhysicalDevice, ComputeQueueFamilyIndex,
                                      vk::QueueFlagBits::eCompute,
                                      vk::QueueFlagBits::eGraphics);
@@ -1358,17 +1374,21 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
   Context->RefCounter_ = 1;
   Context->PhDevice_ = Device;
   Context->ComputeQueueFamilyIndex = ComputeQueueFamilyIndex;
+  // get the best index into queueFamiliyProperties which supports exclusivly transfer 
+  // and optionally excluding graphic and compute queues
   VkRes = getBestQueueNPH(PhysicalDevice, Context->TransferQueueFamilyIndex,
                           vk::QueueFlagBits::eTransfer,
                           vk::QueueFlagBits::eGraphics |
                               vk::QueueFlagBits::eCompute);
   assert(VkRes == vk::Result::eSuccess);
 
-  const char *EXTExternalMemoryImport = "VK_EXT_external_memory_host";
+  // Fix required Vulkan extensions
   std::vector<const char *> EnabledExtensions = {"VK_KHR_variable_pointers",
                                                  "VK_KHR_timeline_semaphore",
                                                  "VK_KHR_shader_float16_int8"};
 
+  // Check availability for Host memory import and enable it if so
+  const char *EXTExternalMemoryImport = "VK_EXT_external_memory_host";
   auto AvailableExtensions =
       Context->PhDevice_->PhDevice.enumerateDeviceExtensionProperties();
   for (auto Extension : AvailableExtensions) {
@@ -1379,6 +1399,8 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
     }
   }
 
+  // TODO: Rethink multiple queue handling
+  // For now limited to a single queue
   const uint32_t MaximumNumberQueues = 1;
 
   std::vector<float> QueuePriority(MaximumNumberQueues, 0.0f);
@@ -1386,12 +1408,13 @@ pi_result VLK(piContextCreate)(const pi_context_properties *properties,
     Context->AvailableQueueIndizes.push(i);
   }
 
-  // create a UniqueDevice
+  // Compute Queue
   std::vector<vk::DeviceQueueCreateInfo> DeviceQueueCreateInfo = {
       vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(),
                                 Context->ComputeQueueFamilyIndex,
                                 MaximumNumberQueues, QueuePriority.data())};
 
+  // Create explicit Transfer queue if not same as compute queue
   if (Context->TransferQueueFamilyIndex != Context->ComputeQueueFamilyIndex) {
     DeviceQueueCreateInfo.emplace_back(vk::DeviceQueueCreateFlags(),
                                        Context->TransferQueueFamilyIndex, 1,
@@ -1537,7 +1560,6 @@ pi_result VLK(piQueueRelease)(pi_queue Queue) {
 
 pi_result VLK(piQueueFinish)(pi_queue command_queue) {
   // TODO: Does this belong here?
-
   return PI_ERROR_UNKNOWN;
 }
 
@@ -1740,7 +1762,7 @@ pi_result VLK(piextMemGetNativeHandle)(pi_mem mem,
                                        pi_native_handle *nativeHandle) {
   assert(nativeHandle != nullptr);
   *nativeHandle =
-      reinterpret_cast<pi_native_handle>(&mem->HostMemory); // Or return Buffer?
+      reinterpret_cast<pi_native_handle>(&mem->HostMemory); // Or return Buffer? Or even Device data?
   return PI_SUCCESS;
 }
 
@@ -1764,7 +1786,7 @@ pi_result VLK(piProgramCreate)(pi_context context, const void *il,
   return PI_SUCCESS;
 }
 
-// TODO: Implement
+// TODO: Required to translate SPIR-V Text code to binary
 pi_result VLK(piclProgramCreateWithSource)(pi_context context, pi_uint32 count,
                                            const char **strings,
                                            const size_t *lengths,
@@ -1815,6 +1837,7 @@ pi_result VLK(piProgramGetInfo)(pi_program program, pi_program_info param_name,
     return getInfoArray(1, param_value_size, param_value, param_value_size_ret,
                         &program->Source_);
   case PI_PROGRAM_INFO_NUM_KERNELS: {
+    // Parse binary and extract number of Compute Entry points
     std::istringstream ISS(
         std::string(program->Source_, program->SourceLength_),
         std::ios::binary);
@@ -1832,6 +1855,7 @@ pi_result VLK(piProgramGetInfo)(pi_program program, pi_program_info param_name,
     break;
   }
   case PI_PROGRAM_INFO_KERNEL_NAMES: {
+    // Parse binary and extract all kernel names, export as c-string seperated by semicolon
     std::istringstream ISS(
         std::string(program->Source_, program->SourceLength_),
         std::ios::binary);
@@ -1873,12 +1897,14 @@ pi_result VLK(piProgramLink)(pi_context context, pi_uint32 num_devices,
                              void *user_data, pi_program *ret_program) {
 
   // well, Vulkan does not support linking of multiple programs
-  // for now, return the original program
-  // but there are automatically added programs to simulate
-  // features ...
+  // for now, simply return the original program
+  // There can be multiple input binaries, since fallback
+  // SPIR-V files are added to support some special functions. 
+  // Last input file is the original binary for the kernel.
+
   // Linking is a planned feature of SPIRV-tools wait until this
   // is available
-  // TODO: implement this if SPIRV-tool support linking
+  // TODO: implement this once SPIRV-tool support linking
   *ret_program = input_programs[num_input_programs - 1];
   return VLK(piProgramRetain)(*ret_program);
 }
@@ -2021,7 +2047,7 @@ pi_result VLK(piKernelGetGroupInfo)(pi_kernel kernel, pi_device Device,
                                     size_t *param_value_size_ret) {
 
   // how to find detailed information for kernels?
-  // needs the SPIRV to be parsed?
+  // needs the SPIR-V to be parsed?
 
   if (kernel != nullptr) {
 
@@ -2081,10 +2107,10 @@ pi_result VLK(piKernelGetGroupInfo)(pi_kernel kernel, pi_device Device,
   return PI_INVALID_KERNEL;
 }
 
-// \TODO: Not implemented
+// \TODO: implement
 pi_result VLK(piKernelGetSubGroupInfo)(
     pi_kernel kernel, pi_device Device,
-    cl_kernel_sub_group_info param_name, // TODO: untie from OpenCL
+    cl_kernel_sub_group_info param_name,
     size_t input_value_size, const void *input_value, size_t param_value_size,
     void *param_value, size_t *param_value_size_ret) {
   sycl::detail::pi::die("VLK(piKernelGetSubGroupInfo) not implemented");
@@ -2133,11 +2159,11 @@ pi_result VLK(piKernelSetExecInfo)(pi_kernel kernel,
 
 NOT_IMPL(pi_result VLK(piEventCreate),
          (pi_context context, pi_event *ret_event))
-pi_result
-VLK(piEventGetInfo)(pi_event event,
-                    cl_event_info param_name, // TODO: untie from OpenCL
-                    size_t param_value_size, void *param_value,
-                    size_t *param_value_size_ret) {
+
+pi_result VLK(piEventGetInfo)(pi_event event,
+                              cl_event_info param_name,
+                              size_t param_value_size, void *param_value,
+                              size_t *param_value_size_ret) {
   switch (param_name) {
   case PI_EVENT_INFO_COMMAND_EXECUTION_STATUS:
     // FIXME: Get the actual Status
@@ -2233,10 +2259,12 @@ pi_result VLK(piEnqueueKernelLaunch)(
     std::vector<uint32_t> Values;
     std::vector<vk::SpecializationMapEntry> Entries;
     if (local_work_size) {
+      // Use local work size from parameter
       for (pi_uint32 i = 0; i < work_dim; i++) {
         Values.push_back(local_work_size[i]);
       }
     } else {
+      // Use some general default values for work size
       switch (work_dim) {
       case 2:
         Values = {16u, 16u, 1u};
@@ -2262,7 +2290,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
     }
 
     // Fillup to 3 Workgroupsize values
-    // needed that preceding values start with 103
+    // needed that preceding specialization values start with 103
     while (Values.size() < 3)
       Values.push_back(1u);
 
@@ -2287,6 +2315,8 @@ pi_result VLK(piEnqueueKernelLaunch)(
             kernel->Name.c_str(), &SpecializationInfo),
         Execution->PipelineLayout.get());
 
+    // Create Compute Pipeline
+    // Here shader will be compiled with specialization values
     {
       auto PipelineResult = Device->createComputePipelineUnique(
           kernel->PipelineCache.get(), computePipelineInfo);
@@ -2294,6 +2324,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
       Execution->Pipeline = std::move(PipelineResult.value);
     }
 
+    // Build descriptors and related objects to pass arguments
     auto DescriptorPoolSize = vk::DescriptorPoolSize(
         vk::DescriptorType::eStorageBuffer, kernel->Arguments.size());
     Execution->DescriptorPool =
@@ -2327,15 +2358,16 @@ pi_result VLK(piEnqueueKernelLaunch)(
           nullptr};
       Execution->MemoryReferences.emplace_back(kernel->Arguments[i]);
     }
-
     Device->updateDescriptorSets(WriteSets, nullptr);
 
+    // Build command buffer and record kernel execution command
     Execution->CommandBuffer = Queue->createCommandBuffer();
     auto &CommandBuffer = Execution->CommandBuffer.get();
 
     CommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlags(
         vk::CommandBufferUsageFlagBits::eOneTimeSubmit)));
 
+    // optional profiling - timestamp start
     Execution->QueryPool = enableProfiling(Queue, CommandBuffer);
 
     CommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute,
@@ -2364,6 +2396,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
         work_dim >= 2 ? global_work_size[1] / Values[1] : 1,
         work_dim >= 3 ? global_work_size[2] / Values[2] : 1);
 
+    // optional profiling - timestamp end
     writeFinishTimestamp(Queue, CommandBuffer, Execution->QueryPool.get());
     CommandBuffer.end();
 
@@ -2384,7 +2417,8 @@ pi_result VLK(piEnqueueKernelLaunch)(
         kernel->AdditionalMemoryEvents.size(),
         kernel->AdditionalMemoryEvents.data(), SubmitInfo);
 
-    // Clean up set arg events
+    // Additional Events of kernel can now be cleared
+    // since data is in SubmitInfo
     kernel->AdditionalMemoryEvents.clear();
 
     // Set Resulting Semaphore if event is aquired
@@ -2400,14 +2434,19 @@ pi_result VLK(piEnqueueKernelLaunch)(
           &Execution->Semaphore->Semaphore.get());
     }
 
+    // Create Execution Fence and finally submit Kernel
     Execution->Fence =
         Device->createFenceUnique(vk::FenceCreateInfo(vk::FenceCreateFlags()));
     Result = Queue->Queue.submit(1, &SubmitInfo.get<vk::SubmitInfo>(),
                                  Execution->Fence.get());
+
+    // Link Queue with execution, so the queue will not be released 
+    // before execution can finish
     Execution->Queue.reset(Queue);
     VLK(piQueueRetain)(Queue);
 
     if (event) {
+      // Move execution ownership to event
       auto NewEvent = new _pi_timeline_event(Queue->Context_,
                                              std::move(Execution), Counter);
       // Store latest kernel launch, to permit overwriting of arguments
@@ -2415,6 +2454,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
       NewEvent->addKernel(kernel);
       *event = NewEvent;
     } else {
+      // No event -> queue handles lifetime of execution
       Queue->StoredExecutions.push_back(std::move(Execution));
     }
 
@@ -2422,7 +2462,7 @@ pi_result VLK(piEnqueueKernelLaunch)(
     return mapVulkanErrToCLErr(Err);
   }
 
-  // stop the capture
+  // stop the renderdoc capture
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
 
@@ -2450,18 +2490,23 @@ pi_result VLK(piEnqueueMemBufferRead)(pi_queue command_queue, pi_mem memobj,
 
   try {
     if (blocking_read) {
+      // Device -> Staging Buffer
       memobj->copyDtoHblocking(num_events_in_wait_list, event_wait_list);
+
+      // Staging Buffer -> Pointer
       void *BufferPtr =
           memobj->Context_->Device->mapMemory(memobj->HostMemory, offset, size);
-
       if (std::memcpy(ptr, BufferPtr, size) != ptr) {
         ret = PI_INVALID_MEM_OBJECT;
       }
       memobj->Context_->Device->unmapMemory(memobj->HostMemory);
+
     } else {
+      // Device -> Staging Buffer
       _pi_execution::uptr_t Execution =
           memobj->copyDtoH(num_events_in_wait_list, event_wait_list);
-
+      
+      // Staging Buffer -> Pointer
       std::thread(localCopy, memobj, ptr, size, offset, Execution->Semaphore, 1)
           .detach();
       if (event)
@@ -2504,7 +2549,10 @@ pi_result VLK(piEnqueueMemBufferReadRect)(
     // FIXME: Add support for nonblocking
     // if (blocking_read) {
     // FIXME: Copy only needed things from Device
+    // Full copy Device -> Staging Buffer
     memobj->copyDtoHblocking(num_events_in_wait_list, event_wait_list);
+
+    // Rect copy Staging Buffer -> Pointer
     char *HostPtr = reinterpret_cast<char *>(ptr);
     char *BufferPtr =
         reinterpret_cast<char *>(memobj->Context_->Device->mapMemory(
@@ -2527,17 +2575,6 @@ pi_result VLK(piEnqueueMemBufferReadRect)(
     memobj->Context_->Device->unmapMemory(memobj->HostMemory);
     if (event)
       *event = new _pi_empty_event();
-    /*} else {
-      memobj->copyDtoH();
-      std::thread(localCopy, memobj, ptr, size, offset,
-                  memobj->Context_->lastTimelineValue)
-          .detach();
-      memobj->Context_->lastTimelineValue++;*/
-    /*if (event)
-      *event = new _pi_timeline_event(memobj->Context_,
-                                      memobj->Context_->Timeline.get(),
-                                      memobj->Context_->lastTimelineValue);*/
-    //}
   } catch (vk::SystemError const &Err) {
     return mapVulkanErrToCLErr(Err);
   }
@@ -2554,8 +2591,8 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
 
   auto Execution = std::make_unique<_pi_execution>(command_queue->Context_);
 
+  // Update Device buffer directly from pointer
   Execution->CommandBuffer = command_queue->createCommandBuffer();
-
   Execution->CommandBuffer->begin(vk::CommandBufferBeginInfo(
       vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
   Execution->QueryPool =
@@ -2593,6 +2630,8 @@ pi_result VLK(piEnqueueMemBufferWrite)(pi_queue command_queue, pi_mem memobj,
                               Execution->Fence.get());
   auto Event = std::make_unique<_pi_timeline_event>(
       memobj->Context_, std::move(Execution), Counter);
+  // Device memory is directly updated but not staging buffer
+  // mark memory object as dirty
   memobj->DeviceDirty = true;
   if (blocking_write) {
     Event->wait();
@@ -2636,6 +2675,8 @@ pi_result VLK(piEnqueueMemBufferWriteRect)(
 
   Execution->QueryPool =
       enableProfiling(command_queue, Execution->CommandBuffer.get());
+  // Write rectengular shaped data to buffer as multiple buffer updates 
+  // consecutive data in the first dimension
   for (size_t Slice = 0; Slice < region[2]; Slice++) {
     for (size_t Row = 0; Row < region[1]; Row++) {
       const void *source = reinterpret_cast<const char *>(ptr) +
@@ -2680,6 +2721,9 @@ pi_result VLK(piEnqueueMemBufferWriteRect)(
                               Execution->Fence.get());
   auto Event = std::make_unique<_pi_timeline_event>(
       command_queue->Context_, std::move(Execution), Counter);
+
+  // Device memory is directly updated but not staging buffer
+  // mark memory object as dirty
   Buffer->DeviceDirty = true;
   if (blocking_write) {
     Event->wait();
@@ -2752,6 +2796,9 @@ pi_result VLK(piEnqueueMemBufferCopy)(pi_queue command_queue, pi_mem src_buffer,
                               Execution->Fence.get());
   auto Event = std::make_unique<_pi_timeline_event>(
       command_queue->Context_, std::move(Execution), Counter);
+
+  // Device memory is directly updated but not staging buffer
+  // mark memory object as dirty
   dst_buffer->DeviceDirty = true;
   if (event) {
     *event = Event.release();
@@ -2844,6 +2891,10 @@ pi_result VLK(piEnqueueMemBufferCopyRect)(
 
   auto Event = std::make_unique<_pi_timeline_event>(
       command_queue->Context_, std::move(Execution), Counter);
+
+  // Device memory is directly updated but not staging buffer
+  // mark memory object as dirty
+  dst_buffer->DeviceDirty = true;
   if (event) {
     *event = Event.release();
   } else {
@@ -2866,7 +2917,7 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
   // bytes of data.
 
   // Vulkan only supports direct buffer fill for a 4 Byte Size element
-  // use native function if patternsize is 4 Byte
+  // use native function if source patternsize is 4 Byte
   if (pattern_size == 4) {
     auto Execution = std::make_unique<_pi_execution>(command_queue->Context_);
     Execution->CommandBuffer = command_queue->createCommandBuffer();
@@ -2932,9 +2983,10 @@ pi_result VLK(piEnqueueMemBufferFill)(pi_queue command_queue, pi_mem buffer,
   } else {
     assert(size % pattern_size == 0);
 
-    // For arbitrary pattern sizes map memory
-    // and do manual buffer fill using memcpy
-    // and move to device through unmap
+    // For arbitrary pattern sizes map memory,
+    // do manual buffer fill using memcpy
+    // and push data to device through unmap
+    // MAP and MemCpy is blocking while Unmap is nonblocking
     // TODO: Think about offset and size - for now it is complete overwrite
     char *MapPtr = nullptr;
     pi_result Result = VLK(piEnqueueMemBufferMap)(
@@ -2995,8 +3047,12 @@ pi_result VLK(piEnqueueMemBufferMap)(
   memobj->LastMapFlags = map_flags;
   memobj->LastMapBlocking = blocking_map;
   if (memobj->HostPtr) {
+    // Case with Staging buffer
+    // Return original host pointer (runtime gets confused if different 
+    // pointer is returned and tries to free the new pointer later on)
     *ret_map = memobj->HostPtr;
     if (TransferBackNeeded) {
+      // Omit Staging buffer und directly read Device -> HostPointer
       return VLK(piEnqueueMemBufferRead)(
           command_queue, memobj, blocking_map, offset, size, memobj->HostPtr,
           num_events_in_wait_list, event_wait_list, event);
@@ -3005,7 +3061,9 @@ pi_result VLK(piEnqueueMemBufferMap)(
       *event = new _pi_empty_event();
     return PI_SUCCESS;
   } else {
+    // Case Host pointer is also Staging 
     if (TransferBackNeeded) {
+      // Copy Device -> Host
       if (blocking_map) {
         memobj->copyDtoHblocking(num_events_in_wait_list, event_wait_list);
       } else {
@@ -3038,20 +3096,21 @@ pi_result VLK(piEnqueueMemUnmap)(pi_queue command_queue, pi_mem memobj,
   memobj->LastMapFlags = 0ul;
   memobj->LastMapBlocking = false;
 
+  // Update Device memory only if writing access was aquired
   if (LastMapFlags & CL_MAP_WRITE ||
       LastMapFlags & CL_MAP_WRITE_INVALIDATE_REGION) {
 
     if (memobj->HostPtr) {
       // If it is a "fake" host pointer, do writing into device buffer directly
-      // alternative would be FakeHostPtr -> HostMem -> DeviceMem
+      // alternative would be HostPtr -> StagingMem -> DeviceMem
       // but this saves the additional copy
       // TODO: Think about offset and size (maybe remember from MAP)
       return VLK(piEnqueueMemBufferWrite)(
           command_queue, memobj, LastMapBlocking, 0, memobj->TotalMemorySize,
           mapped_ptr, num_events_in_wait_list, event_wait_list, event);
     }
-    // In this case the memory is already written in Host Memory
-    // simple copy to device
+    // In this case the memory is already written in Staging Memory
+    // simple copy back to device
     if (LastMapBlocking) {
       memobj->copyHtoDblocking(num_events_in_wait_list, event_wait_list);
     } else {
@@ -3111,6 +3170,8 @@ NOT_IMPL(pi_result VLK(piextUSMGetMemAllocInfo),
          (pi_context context, const void *ptr, pi_mem_info param_name,
           size_t param_value_size, void *param_value,
           size_t *param_value_size_ret))
+  
+const char SupportedVersion[] = _PI_H_VERSION_STRING;
 
 __SYCL_EXPORT pi_result piPluginInit(pi_plugin *PluginInit) {
   int CompareVersions = strcmp(PluginInit->PiVersion, SupportedVersion);
@@ -3123,8 +3184,8 @@ __SYCL_EXPORT pi_result piPluginInit(pi_plugin *PluginInit) {
   // PI interface supports higher version or the same version.
   strncpy(PluginInit->PluginVersion, SupportedVersion, 4);
 
-#define _PI_CL(pi_api, ocl_api)                                                \
-  (PluginInit->PiFunctionTable).pi_api = (decltype(&::pi_api))(&ocl_api);
+#define _PI_CL(pi_api, vulkan_api)                                                \
+  (PluginInit->PiFunctionTable).pi_api = (decltype(&::pi_api))(&vulkan_api);
 
   // Platform
   _PI_CL(piPlatformsGet, VLK(piPlatformsGet))
@@ -3238,7 +3299,8 @@ __SYCL_EXPORT pi_result piPluginInit(pi_plugin *PluginInit) {
   _PI_CL(piextUSMEnqueuePrefetch, VLK(piextUSMEnqueuePrefetch))
   _PI_CL(piextUSMEnqueueMemAdvise, VLK(piextUSMEnqueueMemAdvise))
   _PI_CL(piextUSMGetMemAllocInfo, VLK(piextUSMGetMemAllocInfo))
-
+    
+  //_PI_CL(piTearDown, VLK(piTearDown))
 #undef _PI_CL
 
   return PI_SUCCESS;

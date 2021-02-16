@@ -86,6 +86,7 @@ struct _pi_context : public _ref_counter {
   ~_pi_context() {}
 };
 
+/// Represents a shared pointer to a memory object
 class _mem_ref {
 private:
   pi_mem Mem;
@@ -120,6 +121,12 @@ struct _pi_semaphore {
   typedef std::shared_ptr<_pi_semaphore> sptr_t;
 };
 
+/// This internal structure is created at each command submission
+/// It keeps necessary objects alive until it is deleted. It can 
+/// at the earliest after execution has finished.
+/// An instance keeps also references to all required objects
+/// for the executions, like buffers, which also must be alive
+/// until the execution has finished.
 struct _pi_execution {
 
   pi_context Context_;
@@ -206,6 +213,7 @@ struct _pi_queue : public _ref_counter {
 };
 
 struct _pi_mem : public _ref_counter {
+  /// Also known as staging buffer
   vk::DeviceMemory HostMemory;
   vk::Buffer HostBuffer;
   vk::DeviceMemory DeviceMemory;
@@ -213,11 +221,14 @@ struct _pi_mem : public _ref_counter {
   pi_context Context_;
   pi_mem_flags MemFlags;
   size_t TotalMemorySize;
+  /// Original host pointer - is only set if host pointer could not be imported
   void *HostPtr;
+
+  /// Initial execution of first copy Host -> Device
   _pi_execution::uptr_t InitExecution;
-  /// This flag marks memories, which have been written blocking
-  /// so that on mapping the memory on host, has to be updated
-  /// from the device first.
+  /// This flag marks memories, which have been written directly 
+  /// on device so that on mapping the memory on host, has to 
+  /// be updated from the device first.
   bool DeviceDirty = false;
 
   cl_map_flags LastMapFlags = 0ul;
@@ -307,9 +318,16 @@ struct _pi_program : public _ref_counter {
 
 struct _pi_kernel : public _ref_counter {
   std::string Name;
+  /// Stores mapping of original index of kernel argument 
+  /// and internal global unique binding index 
   std::map<pi_uint32, size_t> ArgIndexToInternalIndex;
   std::vector<vk::DescriptorSetLayoutBinding> DescriptorSetLayoutBinding;
+  
+  /// This stores additional events related to memory.
+  /// E.g. initial copy events of host -> device 
+  /// These events must be finished before the kernel can start
   std::vector<pi_event> AdditionalMemoryEvents;
+
   vk::UniquePipelineCache PipelineCache;
   pi_event LastLaunch;
 
@@ -333,7 +351,11 @@ struct _pi_kernel : public _ref_counter {
     }
   }
 
+  /// Translates Kernel argument index into internal index 
+  /// for descriptor set and unique binding
   size_t getInternalIndex(pi_uint32 ArgIdx);
+  /// Translates internal unique binding index back
+  /// to original arguments index of the kernel
   pi_uint32 getArgumentIndex(size_t IntIdx) const;
 
   pi_result addArgument(pi_uint32 ArgIndex, const pi_mem *Memobj);
@@ -425,9 +447,19 @@ struct _pi_timeline_event : public _pi_event {
       std::tuple<std::vector<vk::Semaphore>, std::vector<uint64_t>,
                  std::vector<vk::PipelineStageFlags>>;
 
+  /// This method extracts Vulkan semaphores from plugin events
+  /// and puts them in the necessary structure to be
+  /// consumed by upcoming executions as prerequisites.
   static event_info_t extractSemaphores(pi_uint32 num_events,
                                         const pi_event *event_list);
 
+  /// This method sets corresponding fields of the Vulkan submit
+  /// structure, to wait for events passed as plugin events objects
+  /// This method needs the static member WaitSemaphores, since
+  /// the Vulkan structure only gets references but no ownership
+  /// of the data. This method is not allowed to be consecutivly called
+  /// since the data can be overwritten until the submission structure
+  /// was passed to the Vulkan API.
   static void setWaitingSemaphores(
       pi_uint32 num_events, const pi_event *event_list,
       vk::StructureChain<vk::SubmitInfo, vk::TimelineSemaphoreSubmitInfoKHR>
