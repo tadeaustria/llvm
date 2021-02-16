@@ -165,6 +165,7 @@ public:
     AMD,
     Mesa,
     SUSE,
+    Vulkan, // Test Vulkan BE
     OpenEmbedded,
     LastVendorType = OpenEmbedded
   };
@@ -711,6 +712,9 @@ public:
   bool isNVPTX() const {
     return getArch() == Triple::nvptx || getArch() == Triple::nvptx64;
   }
+
+  /// Tests whether the target is SPIR-V for Vulkan.
+  bool isVulkan() const { return getVendor() == Triple::Vulkan; }
 
   /// Tests whether the target is AMDGCN
   bool isAMDGCN() const { return getArch() == Triple::amdgcn; }

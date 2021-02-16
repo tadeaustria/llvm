@@ -77,7 +77,7 @@ llvm_config.add_tool_substitutions(['llvm-spirv'], [config.sycl_tools_dir])
 
 backend=lit_config.params.get('SYCL_PLUGIN', "opencl")
 lit_config.note("Backend: {}".format(backend))
-config.substitutions.append( ('%sycl_be', { 'opencl': 'PI_OPENCL',  'cuda': 'PI_CUDA', 'level_zero': 'PI_LEVEL_ZERO'}[backend]) )
+config.substitutions.append( ('%sycl_be', { 'opencl': 'PI_OPENCL',  'cuda': 'PI_CUDA', 'level_zero': 'PI_LEVEL_ZERO', 'vulkan': 'PI_VULKAN'}[backend]) )
 config.substitutions.append( ('%BE_RUN_PLACEHOLDER', "env SYCL_DEVICE_FILTER={SYCL_PLUGIN} ".format(SYCL_PLUGIN=backend)) )
 config.substitutions.append( ('%RUN_ON_HOST', "env SYCL_DEVICE_FILTER=host ") )
 
@@ -86,6 +86,7 @@ get_device_count_by_type_path = os.path.join(config.llvm_tools_dir, "get_device_
 def getDeviceCount(device_type):
     is_cuda = False;
     is_level_zero = False;
+    is_vulkan = False;
     process = subprocess.Popen([get_device_count_by_type_path, device_type, backend],
         stdout=subprocess.PIPE)
     (output, err) = process.communicate()
@@ -105,17 +106,19 @@ def getDeviceCount(device_type):
             TYPE=device_type, BACKEND=backend, OUT=result[0]))
 
     # if we have found gpu and there is additional information, let's check
-    # whether this is CUDA device or Level Zero device or none of these.
+    # whether this is CUDA device or Level Zero device or Vulkan device or none of these.
     if device_type == "gpu" and value > 0 and len(result[1]):
         if re.match(r".*cuda", result[1]):
             is_cuda = True;
         if re.match(r".*level zero", result[1]):
             is_level_zero = True;
+        if re.match(r".*vulkan", result[1]):
+            is_vulkan = True;
 
     if err:
         lit_config.warning("getDeviceCount {TYPE} {BACKEND} stderr:{ERR}".format(
             TYPE=device_type, BACKEND=backend, ERR=err))
-    return [value,is_cuda,is_level_zero]
+    return [value,is_cuda,is_level_zero,is_vulkan]
 
 # Every SYCL implementation provides a host implementation.
 config.available_features.add('host')
@@ -154,7 +157,8 @@ gpu_check_on_linux_substitute = ""
 
 cuda = False
 level_zero = False
-[gpu_count, cuda, level_zero] = getDeviceCount("gpu")
+vulkan = False
+[gpu_count, cuda, level_zero, vulkan] = getDeviceCount("gpu")
 
 if gpu_count > 0:
     found_at_least_one_device = True
@@ -166,6 +170,8 @@ if gpu_count > 0:
        config.available_features.add('cuda')
     elif level_zero:
        config.available_features.add('level_zero')
+    elif vulkan:
+       config.available_features.add('vulkan')
 
     if platform.system() == "Linux":
         gpu_run_on_linux_substitute = "env SYCL_DEVICE_FILTER={SYCL_PLUGIN}:gpu ".format(SYCL_PLUGIN=backend)
@@ -195,12 +201,16 @@ else:
 config.substitutions.append( ('%ACC_RUN_PLACEHOLDER',  acc_run_substitute) )
 config.substitutions.append( ('%ACC_CHECK_PLACEHOLDER',  acc_check_substitute) )
 
-# LIT testing either supports OpenCL or CUDA or Level Zero.
-if not cuda and not level_zero and found_at_least_one_device:
+# LIT testing either supports OpenCL or CUDA or Level Zero or Vulkan.
+if not cuda and not level_zero and not vulkan and found_at_least_one_device:
     config.available_features.add('opencl')
 
 if cuda:
     config.substitutions.append( ('%sycl_triple',  "nvptx64-nvidia-cuda-sycldevice" ) )
+elif vulkan:
+    # Also inject -fsycl-device-code-split since Nvidia Vulkan implementation has problems
+    # with multiple kernels in one file - so tests should work everywhere
+    config.substitutions.append( ('%sycl_triple',  "spir64-vulkan-unknown-sycldevice -fsycl-device-code-split=per_kernel" ) )
 else:
     config.substitutions.append( ('%sycl_triple',  "spir64-unknown-linux-sycldevice" ) )
 

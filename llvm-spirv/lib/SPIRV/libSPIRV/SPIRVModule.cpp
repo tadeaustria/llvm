@@ -63,19 +63,22 @@ SPIRVModule::~SPIRVModule() {}
 
 class SPIRVModuleImpl : public SPIRVModule {
 public:
-  SPIRVModuleImpl()
+  SPIRVModuleImpl(bool UseVulkan = false)
       : SPIRVModule(), NextId(1),
-        SPIRVVersion(static_cast<SPIRVWord>(VersionNumber::SPIRV_1_0)),
+        SPIRVVersion(static_cast<SPIRVWord>(UseVulkan ? VersionNumber::SPIRV_1_3 : VersionNumber::SPIRV_1_0)),
         GeneratorId(SPIRVGEN_KhronosLLVMSPIRVTranslator), GeneratorVer(0),
         InstSchema(SPIRVISCH_Default), SrcLang(SourceLanguageOpenCL_C),
-        SrcLangVer(102000) {
+        SrcLangVer(102000), UseVulkan(UseVulkan) {
     AddrModel = sizeof(size_t) == 32 ? AddressingModelPhysical32
                                      : AddressingModelPhysical64;
     // OpenCL memory model requires Kernel capability
-    setMemoryModel(MemoryModelOpenCL);
+    if (UseVulkan)
+      setMemoryModel(MemoryModelGLSL450);
+    else
+      setMemoryModel(MemoryModelOpenCL);
   }
 
-  SPIRVModuleImpl(const SPIRV::TranslatorOpts &Opts) : SPIRVModuleImpl() {
+  SPIRVModuleImpl(const SPIRV::TranslatorOpts &Opts, bool useVulkan = false) : SPIRVModuleImpl(useVulkan) {
     TranslationOpts = Opts;
   }
 
@@ -188,6 +191,9 @@ public:
   template <class T> void addTo(std::vector<T *> &V, SPIRVEntry *E);
   SPIRVEntry *addEntry(SPIRVEntry *E) override;
   SPIRVBasicBlock *addBasicBlock(SPIRVFunction *, SPIRVId) override;
+  SPIRVBasicBlock *insertBasicBlockAfter(SPIRVFunction *Func,
+                                         SPIRVBasicBlock *After,
+                                         SPIRVId Id) override;
   SPIRVString *getString(const std::string &Str) override;
   SPIRVMemberName *addMemberName(SPIRVTypeStruct *ST, SPIRVWord MemberNumber,
                                  const std::string &Name) override;
@@ -224,6 +230,7 @@ public:
   // Type creation functions
   template <class T> T *addType(T *Ty);
   SPIRVTypeArray *addArrayType(SPIRVType *, SPIRVConstant *) override;
+  SPIRVTypeRuntimeArray *addRuntimeArrayType(SPIRVType *) override;
   SPIRVTypeBool *addBoolType() override;
   SPIRVTypeFloat *addFloatType(unsigned BitWidth) override;
   SPIRVTypeFunction *addFunctionType(SPIRVType *,
@@ -273,6 +280,9 @@ public:
   SPIRVValue *addConstant(SPIRVType *, uint64_t) override;
   SPIRVValue *addConstant(SPIRVType *, llvm::APInt) override;
   SPIRVValue *addSpecConstant(SPIRVType *, uint64_t) override;
+  SPIRVValue *
+  addSpecCompositeConstant(SPIRVType *,
+                           const std::vector<SPIRVValue *> &) override;
   SPIRVValue *addDoubleConstant(SPIRVTypeFloat *, double) override;
   SPIRVValue *addFloatConstant(SPIRVTypeFloat *, float) override;
   SPIRVValue *addIntegerConstant(SPIRVTypeInt *, uint64_t) override;
@@ -286,6 +296,9 @@ public:
                                      SPIRVWord Capacity) override;
 
   // Instruction creation functions
+  SPIRVInstruction *addAccessChainInst(SPIRVType *, SPIRVValue *,
+                                       std::vector<SPIRVValue *>,
+                                       SPIRVBasicBlock *, bool) override;
   SPIRVInstruction *addPtrAccessChainInst(SPIRVType *, SPIRVValue *,
                                           std::vector<SPIRVValue *>,
                                           SPIRVBasicBlock *, bool) override;
@@ -350,7 +363,7 @@ public:
                                  SPIRVBasicBlock *BB) override;
   virtual SPIRVInstruction *
   addInstruction(SPIRVInstruction *Inst, SPIRVBasicBlock *BB,
-                 SPIRVInstruction *InsertBefore = nullptr);
+                 const SPIRVInstruction *InsertBefore = nullptr);
   SPIRVInstTemplateBase *addInstTemplate(Op OC, SPIRVBasicBlock *BB,
                                          SPIRVType *Ty) override;
   SPIRVInstTemplateBase *addInstTemplate(Op OC,
@@ -462,6 +475,7 @@ private:
   std::set<std::string> SPIRVExt;
   SPIRVAddressingModelKind AddrModel;
   SPIRVMemoryModelKind MemoryModel;
+  bool UseVulkan;
 
   typedef std::map<SPIRVId, SPIRVEntry *> SPIRVIdToEntryMap;
   typedef std::set<SPIRVEntry *> SPIRVEntrySet;
@@ -810,6 +824,10 @@ SPIRVTypeArray *SPIRVModuleImpl::addArrayType(SPIRVType *ElementType,
   return addType(new SPIRVTypeArray(this, getId(), ElementType, Length));
 }
 
+SPIRVTypeRuntimeArray *SPIRVModuleImpl::addRuntimeArrayType(SPIRVType *ElementType) {
+  return addType(new SPIRVTypeRuntimeArray(this, getId(), ElementType));
+}
+
 SPIRVTypeBool *SPIRVModuleImpl::addBoolType() {
   return addType(new SPIRVTypeBool(this, getId()));
 }
@@ -961,6 +979,12 @@ SPIRVFunction *SPIRVModuleImpl::addFunction(SPIRVTypeFunction *FuncType,
 SPIRVBasicBlock *SPIRVModuleImpl::addBasicBlock(SPIRVFunction *Func,
                                                 SPIRVId Id) {
   return Func->addBasicBlock(new SPIRVBasicBlock(getId(Id), Func));
+}
+
+SPIRVBasicBlock *SPIRVModuleImpl::insertBasicBlockAfter(SPIRVFunction *Func,
+                                                        SPIRVBasicBlock *After,
+                                                        SPIRVId Id) {
+  return Func->addBasicBlock(new SPIRVBasicBlock(getId(Id), Func), After);
 }
 
 const SPIRVDecorateGeneric *
@@ -1165,6 +1189,11 @@ SPIRVValue *SPIRVModuleImpl::addSpecConstant(SPIRVType *Ty, uint64_t V) {
   return add(new SPIRVSpecConstant(this, Ty, getId(), V));
 }
 
+SPIRVValue *SPIRVModuleImpl::addSpecCompositeConstant(
+    SPIRVType *Ty, const std::vector<SPIRVValue *> &Elements) {
+  return addConstant(new SPIRVSpecConstantComposite(this, Ty, getId(), Elements));
+}
+
 // Instruction creation functions
 
 SPIRVInstruction *
@@ -1248,7 +1277,7 @@ SPIRVModuleImpl::addGroupInst(Op OpCode, SPIRVType *Type, Scope Scope,
 
 SPIRVInstruction *
 SPIRVModuleImpl::addInstruction(SPIRVInstruction *Inst, SPIRVBasicBlock *BB,
-                                SPIRVInstruction *InsertBefore) {
+                                const SPIRVInstruction *InsertBefore) {
   if (BB)
     return BB->addInstruction(Inst, InsertBefore);
   if (Inst->getOpCode() != OpSpecConstantOp)
@@ -1503,6 +1532,17 @@ SPIRVInstruction *SPIRVModuleImpl::addArbFloatPointIntelInst(
 }
 
 SPIRVInstruction *
+SPIRVModuleImpl::addAccessChainInst(SPIRVType *Type, SPIRVValue *Base,
+                                    std::vector<SPIRVValue *> Indices,
+                                    SPIRVBasicBlock *BB, bool IsInBounds) {
+  return addInstruction(
+      SPIRVInstTemplateBase::create(
+          IsInBounds ? OpInBoundsAccessChain : OpAccessChain, Type, getId(),
+          getVec(Base->getId(), Base->getIds(Indices)), BB, this),
+      BB);
+}
+
+SPIRVInstruction *
 SPIRVModuleImpl::addPtrAccessChainInst(SPIRVType *Type, SPIRVValue *Base,
                                        std::vector<SPIRVValue *> Indices,
                                        SPIRVBasicBlock *BB, bool IsInBounds) {
@@ -1603,15 +1643,42 @@ SPIRVInstruction *SPIRVModuleImpl::addVariable(
     SPIRVType *Type, bool IsConstant, SPIRVLinkageTypeKind LinkageTy,
     SPIRVValue *Initializer, const std::string &Name,
     SPIRVStorageClassKind StorageClass, SPIRVBasicBlock *BB) {
+  if (BB) {
+    // Try adding variables always at the beginning of the first block of a
+    // function
+    auto VariableBB = BB == BB->getParent()->getBasicBlock(0)
+                          ? BB
+                          : BB->getParent()->getBasicBlock(0);
+    SPIRVVariable *Variable = new SPIRVVariable(
+        Type, getId(), Initializer, Name, StorageClass, VariableBB, this);
+    auto LastVariable = VariableBB->getTerminateInstr();
+    if (LastVariable && !LastVariable->isVariable()) {
+      // Search block for label instruction and insert after
+      // or before first found variable instruction
+      for (auto Inst = VariableBB->getInst(0); Inst != LastVariable;
+           Inst = VariableBB->getNext(Inst)) {
+        if (Inst->isLabel()) {
+          LastVariable = VariableBB->getNext(Inst);
+          break;
+        } else {
+          LastVariable = Inst;
+          break;
+        }
+      }
+      return addInstruction(Variable, VariableBB, LastVariable);
+    }
+    return addInstruction(Variable, VariableBB);
+  }
+
   SPIRVVariable *Variable = new SPIRVVariable(Type, getId(), Initializer, Name,
                                               StorageClass, BB, this);
-  if (BB)
-    return addInstruction(Variable, BB);
-
   add(Variable);
-  if (LinkageTy != internal::LinkageTypeInternal)
-    Variable->setLinkageType(LinkageTy);
-  Variable->setIsConstant(IsConstant);
+  // Vulkan does not support Linkage nor Constant decorations
+  if (!UseVulkan) {
+    if (LinkageTy != internal::LinkageTypeInternal)
+      Variable->setLinkageType(LinkageTy);
+    Variable->setIsConstant(IsConstant);
+  }
   return Variable;
 }
 
@@ -1946,8 +2013,8 @@ std::istream &operator>>(std::istream &I, SPIRVModule &M) {
 
 SPIRVModule *SPIRVModule::createSPIRVModule() { return new SPIRVModuleImpl(); }
 
-SPIRVModule *SPIRVModule::createSPIRVModule(const SPIRV::TranslatorOpts &Opts) {
-  return new SPIRVModuleImpl(Opts);
+SPIRVModule *SPIRVModule::createSPIRVModule(const SPIRV::TranslatorOpts &Opts, bool useVulkan) {
+  return new SPIRVModuleImpl(Opts, useVulkan);
 }
 
 SPIRVValue *SPIRVModuleImpl::getValue(SPIRVId TheId) const {

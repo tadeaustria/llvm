@@ -96,6 +96,9 @@ static cl::opt<bool>
     IsRegularization("s",
                      cl::desc("Regularize LLVM to be representable by SPIR-V"));
 
+static cl::opt<bool> IsVulkan("vulkan",
+                              cl::desc("Create Vulkan compatible SPIR-V"));
+
 using SPIRV::VersionNumber;
 
 static cl::opt<VersionNumber> MaxSPIRVVersion(
@@ -217,7 +220,8 @@ static std::string removeExt(const std::string &FileName) {
 
 static ExitOnError ExitOnErr;
 
-static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts) {
+static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts,
+                              bool isVulkan) {
   LLVMContext Context;
 
   std::unique_ptr<MemoryBuffer> MB =
@@ -240,9 +244,9 @@ static int convertLLVMToSPIRV(const SPIRV::TranslatorOpts &Opts) {
   bool Success = false;
   if (OutputFile != "-") {
     std::ofstream OutFile(OutputFile, std::ios::binary);
-    Success = writeSpirv(M.get(), Opts, OutFile, Err);
+    Success = writeSpirv(M.get(), Opts, OutFile, Err, isVulkan);
   } else {
-    Success = writeSpirv(M.get(), Opts, std::cout, Err);
+    Success = writeSpirv(M.get(), Opts, std::cout, Err, isVulkan);
   }
 
   if (!Success) {
@@ -632,7 +636,7 @@ int main(int Ac, char **Av) {
 #endif
 
   if (!IsReverse && !IsRegularization && !SpecConstInfo)
-    return convertLLVMToSPIRV(Opts);
+    return convertLLVMToSPIRV(Opts, IsVulkan);
 
   if (IsReverse && IsRegularization) {
     errs() << "Cannot have both -r and -s options\n";

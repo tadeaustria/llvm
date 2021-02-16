@@ -6,6 +6,7 @@ set(LLVM_LINK_COMPONENTS
   AggressiveInstCombine
   Analysis
   AsmParser
+  BBSort
   BitWriter
   CodeGen
   Core

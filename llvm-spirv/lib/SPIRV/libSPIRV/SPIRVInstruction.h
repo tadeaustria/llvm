@@ -2082,9 +2082,12 @@ protected:
   }
 
   void validate() const override {
-    assert((getValueType(Id) == getValueType(Source)) && "Inconsistent type");
-    assert(getValueType(Id)->isTypePointer() && "Invalid type");
-    assert(!(getValueType(Id)->getPointerElementType()->isTypeVoid()) &&
+    assert(getValueType(Target)->isTypePointer() && "Invalid type");
+    assert(getValueType(Source)->isTypePointer() && "Invalid type");
+    assert((getValueType(Target)->getPointerElementType() ==
+            getValueType(Source)->getPointerElementType()) &&
+           "Unequal element type");
+    assert(!(getValueType(Target)->getPointerElementType()->isTypeVoid()) &&
            "Invalid type");
     SPIRVInstruction::validate();
   }
@@ -2116,6 +2119,14 @@ public:
         Source(SPIRVID_INVALID), Size(0) {
     setHasNoId();
     setHasNoType();
+  }
+
+  // Copy Sized needs Adresses Capability
+  // https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#OpCopyMemorySized
+  SPIRVCapVec getRequiredCapability() const override {
+    auto cap = SPIRVInstruction::getRequiredCapability();
+    cap.push_back(CapabilityAddresses);
+    return cap;
   }
 
   SPIRVValue *getSource() { return getValue(Source); }

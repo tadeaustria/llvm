@@ -930,9 +930,10 @@ static bool canSimplifyNullLoadOrGEP(LoadInst &LI, Value *Op) {
 Instruction *InstCombinerImpl::visitLoadInst(LoadInst &LI) {
   Value *Op = LI.getOperand(0);
 
-  // Try to canonicalize the loaded type.
-  if (Instruction *Res = combineLoadToOperationType(*this, LI))
-    return Res;
+  if (!VulkanFriendly)
+    // Try to canonicalize the loaded type.
+    if (Instruction *Res = combineLoadToOperationType(*this, LI))
+      return Res;
 
   // Attempt to improve the alignment.
   Align KnownAlign = getOrEnforceKnownAlignment(
@@ -1331,7 +1332,7 @@ Instruction *InstCombinerImpl::visitStoreInst(StoreInst &SI) {
   Value *Ptr = SI.getOperand(1);
 
   // Try to canonicalize the stored type.
-  if (combineStoreToValueType(*this, SI))
+  if (!VulkanFriendly && combineStoreToValueType(*this, SI))
     return eraseInstFromFunction(SI);
 
   // Attempt to improve the alignment.

@@ -88,7 +88,7 @@ public:
   // In 'Pointer' mode we generate OpConstFunctionPointerINTEL constant instead.
   enum class FuncTransMode { Decl, Pointer };
 
-  SPIRVType *transType(Type *T);
+  virtual SPIRVType *transType(Type *T);
   SPIRVType *transSPIRVOpaqueType(Type *T);
 
   SPIRVValue *getTranslatedValue(const Value *) const;
@@ -97,42 +97,42 @@ public:
                                       std::vector<SPIRVWord> &Parameters);
 
   // Translation functions
-  bool transAddressingMode();
-  bool transAlign(Value *V, SPIRVValue *BV);
+  virtual bool transAddressingMode();
+  virtual bool transAlign(Value *V, SPIRVValue *BV);
   std::vector<SPIRVWord> transArguments(CallInst *, SPIRVBasicBlock *,
                                         SPIRVEntry *);
   bool transSourceLanguage();
   bool transExtension();
-  bool transBuiltinSet();
+  virtual bool transBuiltinSet();
   bool isKnownIntrinsic(Intrinsic::ID Id);
-  SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic, SPIRVBasicBlock *BB);
+  virtual SPIRVValue *transIntrinsicInst(IntrinsicInst *Intrinsic, SPIRVBasicBlock *BB);
   SPIRVValue *transCallInst(CallInst *Call, SPIRVBasicBlock *BB);
-  SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
+  virtual SPIRVValue *transDirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
   SPIRVValue *transIndirectCallInst(CallInst *Call, SPIRVBasicBlock *BB);
   SPIRVValue *transAsmINTEL(InlineAsm *Asm);
   SPIRVValue *transAsmCallINTEL(CallInst *Call, SPIRVBasicBlock *BB);
-  bool transDecoration(Value *V, SPIRVValue *BV);
+  virtual bool transDecoration(Value *V, SPIRVValue *BV);
   SPIRVWord transFunctionControlMask(Function *);
-  SPIRVFunction *transFunctionDecl(Function *F);
+  virtual SPIRVFunction *transFunctionDecl(Function *F);
   void transVectorComputeMetadata(Function *F);
   void transFPGAFunctionMetadata(SPIRVFunction *BF, Function *F);
   bool transGlobalVariables();
+  static bool isEmptyLLVMModule(Module *M);
 
   Op transBoolOpCode(SPIRVValue *Opn, Op OC);
   // Translate LLVM module to SPIR-V module.
   // Returns true if succeeds.
-  bool translate();
-  bool transExecutionMode();
+  virtual bool translate();
+  virtual bool transExecutionMode();
   void transFPContract();
   SPIRVValue *transConstant(Value *V);
   SPIRVValue *transValue(Value *V, SPIRVBasicBlock *BB,
                          bool CreateForward = true,
                          FuncTransMode FuncTrans = FuncTransMode::Decl);
   void transGlobalAnnotation(GlobalVariable *V);
-  SPIRVValue *
-  transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
-                              bool CreateForward = true,
-                              FuncTransMode FuncTrans = FuncTransMode::Decl);
+  virtual SPIRVValue *transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
+                                                  bool CreateForward = true,
+                                                  FuncTransMode FuncTrans = FuncTransMode::Decl);
   void transGlobalIOPipeStorage(GlobalVariable *V, MDNode *IO);
 
   static SPIRVInstruction *applyRoundingModeConstraint(Value *V,
@@ -142,7 +142,7 @@ public:
   typedef DenseMap<Value *, SPIRVValue *> LLVMToSPIRVValueMap;
   typedef DenseMap<MDNode *, SmallSet<SPIRVId, 2>> LLVMToSPIRVMetadataMap;
 
-private:
+protected:
   Module *M;
   LLVMContext *Ctx;
   SPIRVModule *BM;
@@ -167,7 +167,7 @@ private:
   llvm::IntegerType *getSizetType(unsigned AS = 0);
   std::vector<SPIRVValue *> transValue(const std::vector<Value *> &Values,
                                        SPIRVBasicBlock *BB);
-  std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
+  virtual std::vector<SPIRVWord> transValue(const std::vector<Value *> &Values,
                                     SPIRVBasicBlock *BB, SPIRVEntry *Entry);
   SPIRVInstruction *transBinaryInst(BinaryOperator *B, SPIRVBasicBlock *BB);
   SPIRVInstruction *transCmpInst(CmpInst *Cmp, SPIRVBasicBlock *BB);
@@ -205,16 +205,18 @@ private:
 
   SPIRVValue *transSpcvCast(CallInst *CI, SPIRVBasicBlock *BB);
   SPIRVValue *oclTransSpvcCastSampler(CallInst *CI, SPIRVBasicBlock *BB);
-  SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
-                                          SPIRVBasicBlock *BB);
+  virtual SPIRV::SPIRVInstruction *transUnaryInst(UnaryInstruction *U,
+                                                  SPIRVBasicBlock *BB);
 
-  void transFunction(Function *I);
-  SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+  virtual void transFunction(Function *I);
+  virtual SPIRV::SPIRVLinkageTypeKind transLinkageType(const GlobalValue *GV);
+
+  static std::vector<SPIRVWord> GetIntrinsicMemoryAccess(MemIntrinsic *MI);
 
   bool isAnyFunctionReachableFromFunction(
       const Function *FS,
       const std::unordered_set<const Function *> Funcs) const;
-  void collectInputOutputVariables(SPIRVFunction *SF, Function *F);
+  virtual void collectInputOutputVariables(SPIRVFunction *SF, Function *F);
 };
 
 } // namespace SPIRV

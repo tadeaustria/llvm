@@ -5,20 +5,34 @@ and a wide range of compute accelerators such as GPU and FPGA.
 
 ## Table of contents
 
-* [Prerequisites](#prerequisites)
-  * [Create DPC++ workspace](#create-dpc-workspace)
-* [Build DPC++ toolchain](#build-dpc-toolchain)
-  * [Build DPC++ toolchain with libc++ library](#build-dpc-toolchain-with-libc-library)
-  * [Build DPC++ toolchain with support for NVIDIA CUDA](#build-dpc-toolchain-with-support-for-nvidia-cuda)
-* [Use DPC++ toolchain](#use-dpc-toolchain)
-  * [Install low level runtime](#install-low-level-runtime)
-  * [Obtain prerequisites for ahead of time (AOT) compilation](#obtain-prerequisites-for-ahead-of-time-aot-compilation)
-  * [Test DPC++ toolchain](#test-dpc-toolchain)
-  * [Run simple DPC++ application](#run-simple-dpc-application)
-* [C++ standard](#c-standard)
-* [Known Issues and Limitations](#known-issues-and-limitations)
-* [CUDA backend limitations](#cuda-backend-limitations)
-* [Find More](#find-more)
+- [Getting Started with oneAPI DPC++](#getting-started-with-oneapi-dpc)
+  - [Table of contents](#table-of-contents)
+  - [Prerequisites](#prerequisites)
+    - [Create DPC++ workspace](#create-dpc-workspace)
+  - [Build DPC++ toolchain](#build-dpc-toolchain)
+    - [Build DPC++ toolchain with libc++ library](#build-dpc-toolchain-with-libc-library)
+    - [Build DPC++ toolchain with support for NVIDIA CUDA](#build-dpc-toolchain-with-support-for-nvidia-cuda)
+    - [Build DPC++ toolchain with support for Vulkan](#build-dpc-toolchain-with-support-for-vulkan)
+    - [Deployment](#deployment)
+  - [Use DPC++ toolchain](#use-dpc-toolchain)
+    - [Using the DPC++ toolchain on CUDA platforms](#using-the-dpc-toolchain-on-cuda-platforms)
+    - [Install low level runtime](#install-low-level-runtime)
+    - [Obtain prerequisites for ahead of time (AOT) compilation](#obtain-prerequisites-for-ahead-of-time-aot-compilation)
+      - [GPU](#gpu)
+      - [CPU](#cpu)
+      - [Accelerator](#accelerator)
+    - [Test DPC++ toolchain](#test-dpc-toolchain)
+      - [Run in-tree LIT tests](#run-in-tree-lit-tests)
+      - [Run DPC++ E2E test suite](#run-dpc-e2e-test-suite)
+      - [Run Khronos\* SYCL\* conformance test suite (optional)](#run-khronos-sycl-conformance-test-suite-optional)
+    - [Build Doxygen documentation](#build-doxygen-documentation)
+    - [Run simple DPC++ application](#run-simple-dpc-application)
+    - [Code the program for a specific GPU](#code-the-program-for-a-specific-gpu)
+  - [C++ standard](#c-standard)
+  - [Known Issues and Limitations](#known-issues-and-limitations)
+    - [CUDA back-end limitations](#cuda-back-end-limitations)
+    - [Vulkan back-end limitations](#vulkan-back-end-limitations)
+  - [Find More](#find-more)
 
 ## Prerequisites
 
@@ -95,6 +109,7 @@ flags can be found by launching the script with `--help`):
 * `--system-ocl` -> Don't download OpenCL headers and library via CMake but use the system ones
 * `--no-werror` -> Don't treat warnings as errors when compiling llvm
 * `--cuda` -> use the cuda backend (see [Nvidia CUDA](#build-dpc-toolchain-with-support-for-nvidia-cuda))
+* `--vulkan` -> use the Vulkan backend (see [Vulkan](#build-dpc-toolchain-with-support-for-nvidia-cuda))
 * `--shared-libs` -> Build shared libraries
 * `-t` -> Build type (debug or release)
 * `-o` -> Path to build directory
@@ -137,6 +152,19 @@ Currently, the only combination tested is Ubuntu 18.04 with CUDA 10.2 using
 a Titan RTX GPU (SM 71), but it should work on any GPU compatible with SM 50 or
 above. The default SM for the NVIDIA CUDA backend is 5.0. Users can specify
 lower values, but some features may not be supported.
+
+### Build DPC++ toolchain with support for Vulkan
+
+This is also an experimental support for DPC++ for Vulkan devices.
+
+Since the vulkan backend has a ugly dependency with LLVM it is needed to first compile DPC++
+without Vulkan (see [Installation](#build-DPC++-toolchain)). Then call `configure.py` again with `--vulkan` flag 
+and recompile the project.
+
+Enabling this flag requires an installation of [Vulkan SDK 1.2.141](https://www.lunarg.com/vulkan-sdk/).
+
+However, the Vulkan backend has only limited feature support, espacially USM and ONEAPI features are not supported.
+Also local memory on devices is not supported yet. [Vulkan Limitations](#vulkan-back-end-limitations)
 
 ### Deployment
 
@@ -530,6 +558,13 @@ clang++ -fsycl -fsycl-targets=nvptx64-nvidia-cuda-sycldevice \
   simple-sycl-app.cpp -o simple-sycl-app-cuda.exe
 ```
 
+When building for Vulkan, use the Vulkan target triple as follows:
+
+```bash
+clang++ -fsycl -fsycl-targets=spir64-vulkan-unknown-sycldevice \
+  simple-sycl-app.cpp -o simple-sycl-app-vulkan.exe
+```
+
 To build simple-sycl-app ahead of time for GPU, CPU or Accelerator devices,
 specify the target architecture:
 
@@ -588,6 +623,14 @@ variable.
 
 ```bash
 SYCL_BE=PI_CUDA ./simple-sycl-app-cuda.exe
+```
+
+**NOTE**: Currently, when the application has been built with the Vulkan target,
+the Vulkan backend must be selected at runtime using the `SYCL_DEVICE_FILTER` environment
+variable.
+
+```bash
+SYCL_DEVICE_FILTER=vulkan:* ./simple-sycl-app-vulkan.exe
 ```
 
 **NOTE**: DPC++/SYCL developers can specify SYCL device for execution using
@@ -659,6 +702,24 @@ class CUDASelector : public cl::sycl::device_selector {
 };
 ```
 
+
+The device selector below selects an Vulkan device only, and won't execute if
+there is none. (Is equivalent to use environment variable `SYCL_DEVICE_FILTER=vulkan:*`)
+
+```c++
+class VulkanSelector : public cl::sycl::device_selector {
+public:
+  int operator()(const cl::sycl::device &Device) const override {
+    using namespace cl::sycl::info;
+    if (Device.get_platform().get_backend() == backend::vulkan) {
+      std::cout << " Vulkan device found " << std::endl;
+      return 1;
+    };
+    return -1;
+  }
+};
+```
+
 ## C++ standard
 
 * DPC++ runtime is built as C++14 library.
@@ -682,6 +743,10 @@ class CUDASelector : public cl::sycl::device_selector {
   GPU (SM 71), but it should work on any GPU compatible with SM 50 or above
 * The NVIDIA OpenCL headers conflict with the OpenCL headers required for this
   project and may cause compilation issues on some platforms
+
+### Vulkan back-end limitations
+
+* TODO:
 
 ## Find More
 

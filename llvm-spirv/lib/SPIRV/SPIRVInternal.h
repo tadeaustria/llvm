@@ -192,6 +192,7 @@ enum SPIRAddressSpace {
   SPIRAS_GlobalHost,
   SPIRAS_Input,
   SPIRAS_Output,
+  SPIRAS_StorageBuffer,
   SPIRAS_Count,
 };
 
@@ -204,6 +205,7 @@ template <> inline void SPIRVMap<SPIRAddressSpace, std::string>::init() {
   add(SPIRAS_Input, "Input");
   add(SPIRAS_GlobalDevice, "GlobalDevice");
   add(SPIRAS_GlobalHost, "GlobalHost");
+  add(SPIRAS_StorageBuffer, "StorageBuffer");
 }
 typedef SPIRVMap<SPIRAddressSpace, SPIRVStorageClassKind>
     SPIRAddrSpaceCapitalizedNameMap;
@@ -218,6 +220,7 @@ inline void SPIRVMap<SPIRAddressSpace, SPIRVStorageClassKind>::init() {
   add(SPIRAS_Input, StorageClassInput);
   add(SPIRAS_GlobalDevice, StorageClassDeviceOnlyINTEL);
   add(SPIRAS_GlobalHost, StorageClassHostOnlyINTEL);
+  add(SPIRAS_StorageBuffer, StorageClassStorageBuffer);
 }
 typedef SPIRVMap<SPIRAddressSpace, SPIRVStorageClassKind> SPIRSPIRVAddrSpaceMap;
 

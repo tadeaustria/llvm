@@ -955,7 +955,6 @@ template <> struct InstToContinued<OpSpecConstantComposite> {
 #define _SPIRV_OP(x) typedef SPIRVEntryUnimplemented<Op##x> SPIRV##x;
 _SPIRV_OP(Nop)
 _SPIRV_OP(SourceContinued)
-_SPIRV_OP(TypeRuntimeArray)
 _SPIRV_OP(Image)
 _SPIRV_OP(ImageTexelPointer)
 _SPIRV_OP(ImageSampleDrefImplicitLod)

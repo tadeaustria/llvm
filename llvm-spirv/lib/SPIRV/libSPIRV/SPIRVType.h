@@ -79,6 +79,7 @@ public:
 
   bool isTypeVoid() const;
   bool isTypeArray() const;
+  bool isTypeRuntimeArray() const;
   bool isTypeBool() const;
   bool isTypeComposite() const;
   bool isTypeEvent() const;
@@ -249,7 +250,8 @@ public:
   }
   SPIRVStorageClassKind getStorageClass() const { return ElemStorageClass; }
   SPIRVCapVec getRequiredCapability() const override {
-    auto Cap = getVec(CapabilityAddresses);
+    //auto Cap = getVec(CapabilityAddresses); //due to SPIRV specification pointers do not need Address capability...
+    SPIRVCapVec Cap;
     if (getElementType()->isTypeFloat(16))
       Cap.push_back(CapabilityFloat16Buffer);
     auto C = getCapability(ElemStorageClass);
@@ -410,6 +412,29 @@ protected:
 private:
   SPIRVType *ElemType; // Element Type
   SPIRVId Length;      // Array Length
+};
+
+class SPIRVTypeRuntimeArray : public SPIRVType {
+public:
+  // Complete constructor
+  SPIRVTypeRuntimeArray(SPIRVModule *M, SPIRVId TheId, SPIRVType *TheElemType);
+  // Incomplete constructor
+  SPIRVTypeRuntimeArray()
+      : SPIRVType(OpTypeRuntimeArray), ElemType(nullptr) {}
+
+  SPIRVType *getElementType() const { return ElemType; }
+  SPIRVCapVec getRequiredCapability() const override;
+  std::vector<SPIRVEntry *> getNonLiteralOperands() const override {
+    std::vector<SPIRVEntry *> Operands(1, ElemType);
+    return Operands;
+  }
+
+protected:
+  _SPIRV_DCL_ENCDEC
+  void validate() const override;
+
+private:
+  SPIRVType *ElemType; // Element Type
 };
 
 class SPIRVTypeOpaque : public SPIRVType {

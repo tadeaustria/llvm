@@ -61,10 +61,12 @@ bool trace(TraceLevel level);
 #define __SYCL_OPENCL_PLUGIN_NAME "pi_opencl.dll"
 #define __SYCL_LEVEL_ZERO_PLUGIN_NAME "pi_level_zero.dll"
 #define __SYCL_CUDA_PLUGIN_NAME "pi_cuda.dll"
+#define __SYCL_VULKAN_PLUGIN_NAME "pi_vulkan.dll"
 #else
 #define __SYCL_OPENCL_PLUGIN_NAME "libpi_opencl.so"
 #define __SYCL_LEVEL_ZERO_PLUGIN_NAME "libpi_level_zero.so"
 #define __SYCL_CUDA_PLUGIN_NAME "libpi_cuda.so"
+#define __SYCL_VULKAN_PLUGIN_NAME "libpi_vulkan.so"
 #endif
 
 // Report error and no return (keeps compiler happy about no return statements).
@@ -85,8 +87,8 @@ void handleUnknownParamName(const char *functionName, T parameter) {
 // This macro is used to report invalid enumerators being passed to PI API
 // GetInfo functions. It will print the name of the function that invoked it
 // and the value of the unknown enumerator.
-#define __SYCL_PI_HANDLE_UNKNOWN_PARAM_NAME(parameter)                         \
-  { cl::sycl::detail::pi::handleUnknownParamName(__func__, parameter); }
+#define __SYCL_PI_HANDLE_UNKNOWN_PARAM_NAME(parameter)                                \
+  { ::cl::sycl::detail::pi::handleUnknownParamName(__func__, parameter); }
 
 using PiPlugin = ::pi_plugin;
 using PiResult = ::pi_result;
@@ -115,7 +117,7 @@ using PiMemObjectType = ::pi_mem_type;
 using PiMemImageChannelOrder = ::pi_image_channel_order;
 using PiMemImageChannelType = ::pi_image_channel_type;
 
-__SYCL_EXPORT void contextSetExtendedDeleter(const cl::sycl::context &constext,
+__SYCL_EXPORT void contextSetExtendedDeleter(const sycl::context &constext,
                                              pi_context_extended_deleter func,
                                              void *user_data);
 
@@ -341,7 +343,7 @@ PiDeviceBinaryType getBinaryImageFormat(const unsigned char *ImgData,
 
 } // namespace pi
 
-namespace RT = cl::sycl::detail::pi;
+namespace RT = sycl::detail::pi;
 
 // Workaround for build with GCC 5.x
 // An explicit specialization shall be declared in the namespace block.
@@ -372,7 +374,7 @@ template <> inline pi::PiDevice cast(cl_device_id) {
 } // namespace detail
 
 // For shortness of using PI from the top-level sycl files.
-namespace RT = cl::sycl::detail::pi;
+namespace RT = sycl::detail::pi;
 
 } // namespace sycl
 } // __SYCL_INLINE_NAMESPACE(cl)

@@ -1,0 +1,10 @@
+;===- ./lib/Transforms/BBSort/LLVMBuild.txt --------------------*- Conf -*--===;
+;
+;
+;===------------------------------------------------------------------------===;
+
+[component_0]
+type = Library
+name = BBSort
+parent = Transforms
+required_libraries = Core Support

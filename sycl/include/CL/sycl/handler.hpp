@@ -332,14 +332,15 @@ private:
   /// TODO replace with the version below once ABI breaking changes are allowed.
   void
   extractArgsAndReqsFromLambda(char *LambdaPtr, size_t KernelArgsNum,
-                               const detail::kernel_param_desc_t *KernelArgs);
+                               const detail::kernel_param_desc_t *KernelArgs,
+                               size_t IndexShift = 0);
 
   /// Extracts and prepares kernel arguments from the lambda using integration
   /// header.
   void
   extractArgsAndReqsFromLambda(char *LambdaPtr, size_t KernelArgsNum,
                                const detail::kernel_param_desc_t *KernelArgs,
-                               bool IsESIMD);
+                               bool IsESIMD, size_t IndexShift = 0);
 
   /// Extracts and prepares kernel arguments set via set_arg(s).
   void extractArgsAndReqs();
@@ -517,7 +518,7 @@ private:
       // TODO support ESIMD in no-integration-header case too.
       MArgs.clear();
       extractArgsAndReqsFromLambda(MHostKernel->getPtr(), KI::getNumParams(),
-                                   &KI::getParamDesc(0), KI::isESIMD());
+                                   &KI::getParamDesc(0), KI::isESIMD(), KI::getOffset());
       MKernelName = KI::getName();
       MOSModuleHandle = detail::OSUtil::getOSModuleHandle(KI::getName());
     } else {

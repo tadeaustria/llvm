@@ -63,6 +63,7 @@ class SPIRVFunction;
 class SPIRVInstruction;
 class SPIRVType;
 class SPIRVTypeArray;
+class SPIRVTypeRuntimeArray;
 class SPIRVTypeBool;
 class SPIRVTypeFloat;
 class SPIRVTypeFunction;
@@ -101,7 +102,8 @@ public:
   typedef std::map<SPIRVCapabilityKind, SPIRVCapability *> SPIRVCapMap;
 
   static SPIRVModule *createSPIRVModule();
-  static SPIRVModule *createSPIRVModule(const SPIRV::TranslatorOpts &);
+  static SPIRVModule *createSPIRVModule(const SPIRV::TranslatorOpts &,
+                                        bool UseVulkan = false);
   SPIRVModule();
   virtual ~SPIRVModule();
 
@@ -186,6 +188,9 @@ public:
   virtual SPIRVEntry *addEntry(SPIRVEntry *) = 0;
   virtual SPIRVBasicBlock *addBasicBlock(SPIRVFunction *,
                                          SPIRVId Id = SPIRVID_INVALID) = 0;
+  virtual SPIRVBasicBlock *
+  insertBasicBlockAfter(SPIRVFunction *Func, SPIRVBasicBlock *After = nullptr,
+                        SPIRVId Id = SPIRVID_INVALID) = 0;
   virtual SPIRVString *getString(const std::string &Str) = 0;
   virtual SPIRVMemberName *addMemberName(SPIRVTypeStruct *ST,
                                          SPIRVWord MemberNumber,
@@ -219,6 +224,7 @@ public:
 
   // Type creation functions
   virtual SPIRVTypeArray *addArrayType(SPIRVType *, SPIRVConstant *) = 0;
+  virtual SPIRVTypeRuntimeArray *addRuntimeArrayType(SPIRVType *) = 0;
   virtual SPIRVTypeBool *addBoolType() = 0;
   virtual SPIRVTypeFloat *addFloatType(unsigned) = 0;
   virtual SPIRVTypeFunction *
@@ -266,6 +272,8 @@ public:
   virtual SPIRVValue *addConstant(SPIRVType *, uint64_t) = 0;
   virtual SPIRVValue *addConstant(SPIRVType *, llvm::APInt) = 0;
   virtual SPIRVValue *addSpecConstant(SPIRVType *, uint64_t) = 0;
+  virtual SPIRVValue *
+  addSpecCompositeConstant(SPIRVType *, const std::vector<SPIRVValue *> &) = 0;
   virtual SPIRVValue *addDoubleConstant(SPIRVTypeFloat *, double) = 0;
   virtual SPIRVValue *addFloatConstant(SPIRVTypeFloat *, float) = 0;
   virtual SPIRVValue *addIntegerConstant(SPIRVTypeInt *, uint64_t) = 0;
@@ -280,6 +288,10 @@ public:
                                              SPIRVWord Capacity) = 0;
 
   // Instruction creation functions
+  virtual SPIRVInstruction *addAccessChainInst(SPIRVType *, SPIRVValue *,
+                                               std::vector<SPIRVValue *>,
+                                               SPIRVBasicBlock *, bool) = 0;
+
   virtual SPIRVInstruction *addPtrAccessChainInst(SPIRVType *, SPIRVValue *,
                                                   std::vector<SPIRVValue *>,
                                                   SPIRVBasicBlock *, bool) = 0;
@@ -527,7 +539,6 @@ protected:
 private:
   bool IsValid;
 };
-
 
 #ifdef _SPIRV_SUPPORT_TEXT_FMT
 

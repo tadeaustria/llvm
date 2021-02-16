@@ -168,7 +168,7 @@ template <> inline void SPIRVMap<SPIRVCapabilityKind, SPIRVCapVec>::init() {
   ADD_VEC_INIT(CapabilityImageRect, {CapabilitySampledRect});
   ADD_VEC_INIT(CapabilitySampledRect, {CapabilityShader});
   ADD_VEC_INIT(CapabilityGenericPointer, {CapabilityAddresses});
-  ADD_VEC_INIT(CapabilityInt8, {CapabilityKernel});
+  //ADD_VEC_INIT(CapabilityInt8, {CapabilityKernel}); // this is not true, that Int8 required Kernel due to https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(CapabilityInputAttachment, {CapabilityShader});
   ADD_VEC_INIT(CapabilitySparseResidency, {CapabilityShader});
   ADD_VEC_INIT(CapabilityMinLod, {CapabilityShader});
@@ -332,7 +332,7 @@ template <> inline void SPIRVMap<ImageOperandsMask, SPIRVCapVec>::init() {
 
 template <> inline void SPIRVMap<Decoration, SPIRVCapVec>::init() {
   ADD_VEC_INIT(DecorationRelaxedPrecision, {CapabilityShader});
-  ADD_VEC_INIT(DecorationSpecId, {CapabilityKernel});
+  //ADD_VEC_INIT(DecorationSpecId, {CapabilityKernel, CapabilityShader}); // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Decoration
   ADD_VEC_INIT(DecorationBlock, {CapabilityShader});
   ADD_VEC_INIT(DecorationBufferBlock, {CapabilityShader});
   ADD_VEC_INIT(DecorationRowMajor, {CapabilityMatrix});
@@ -453,9 +453,9 @@ template <> inline void SPIRVMap<BuiltIn, SPIRVCapVec>::init() {
   ADD_VEC_INIT(BuiltInEnqueuedWorkgroupSize, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInGlobalOffset, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInGlobalLinearId, {CapabilityKernel});
-  ADD_VEC_INIT(BuiltInSubgroupSize, {CapabilityKernel});
+  //ADD_VEC_INIT(BuiltInSubgroupSize, {CapabilityKernel});    // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(BuiltInSubgroupMaxSize, {CapabilityKernel});
-  ADD_VEC_INIT(BuiltInNumSubgroups, {CapabilityKernel});
+  //ADD_VEC_INIT(BuiltInNumSubgroups, {CapabilityKernel});    // how to handle OR Capabilities? https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Capability
   ADD_VEC_INIT(BuiltInNumEnqueuedSubgroups, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInSubgroupId, {CapabilityKernel});
   ADD_VEC_INIT(BuiltInSubgroupLocalInvocationId, {CapabilityKernel});

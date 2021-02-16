@@ -1,3 +1,4 @@
+// UNSUPPORTED: vulkan
 // RUN: %clangxx -fsycl -fsycl-unnamed-lambda -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %RUN_ON_HOST %t.out
 

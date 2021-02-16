@@ -14,3 +14,7 @@ target_include_directories(PiTests PRIVATE SYSTEM ${sycl_inc_dir})
 if(SYCL_BUILD_PI_CUDA)
     add_subdirectory(cuda)
 endif()
+
+if(SYCL_BUILD_PI_VULKAN)
+    add_subdirectory(vulkan)
+endif()

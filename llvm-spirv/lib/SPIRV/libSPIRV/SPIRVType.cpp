@@ -147,6 +147,8 @@ SPIRVType *SPIRVType::getScalarType() const {
 bool SPIRVType::isTypeVoid() const { return OpCode == OpTypeVoid; }
 bool SPIRVType::isTypeArray() const { return OpCode == OpTypeArray; }
 
+bool SPIRVType::isTypeRuntimeArray() const { return OpCode == OpTypeRuntimeArray; }
+
 bool SPIRVType::isTypeBool() const { return OpCode == OpTypeBool; }
 
 bool SPIRVType::isTypeComposite() const {
@@ -255,6 +257,25 @@ SPIRVConstant *SPIRVTypeArray::getLength() const {
 }
 
 _SPIRV_IMP_ENCDEC3(SPIRVTypeArray, Id, ElemType, Length)
+
+SPIRVTypeRuntimeArray::SPIRVTypeRuntimeArray(SPIRVModule *M, SPIRVId TheId,
+                                             SPIRVType *TheElemType)
+    : SPIRVType(M, 3, OpTypeRuntimeArray, TheId), ElemType(TheElemType) {
+  validate();
+}
+
+SPIRVCapVec SPIRVTypeRuntimeArray::getRequiredCapability() const {
+  auto caps = ElemType->getRequiredCapability();
+  caps.push_back(Capability::CapabilityShader);
+  return caps;
+}
+
+void SPIRVTypeRuntimeArray::validate() const {
+  SPIRVEntry::validate();
+  ElemType->validate();
+}
+
+_SPIRV_IMP_ENCDEC2(SPIRVTypeRuntimeArray, Id, ElemType)
 
 void SPIRVTypeForwardPointer::encode(spv_ostream &O) const {
   getEncoder(O) << Pointer << SC;

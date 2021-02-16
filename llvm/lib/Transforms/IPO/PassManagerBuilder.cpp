@@ -30,6 +30,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/Transforms/BBSort/BBSort.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/ForceFunctionAttrs.h"
@@ -212,6 +213,7 @@ PassManagerBuilder::PassManagerBuilder() {
     PerformThinLTO = EnablePerformThinLTO;
     DivergentTarget = false;
     CallGraphProfile = true;
+    StructurizeCFG = false;
 }
 
 PassManagerBuilder::~PassManagerBuilder() {
@@ -928,6 +930,12 @@ void PassManagerBuilder::populateModulePassManager(
   }
 
   MPM.add(createAnnotationRemarksLegacyPass());
+  
+  if (StructurizeCFG) {
+    MPM.add(createLoopSimplifyPass());
+    MPM.add(createStructurizeCFGPass());
+    MPM.add(createBBSortPass());
+  }
 }
 
 void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {

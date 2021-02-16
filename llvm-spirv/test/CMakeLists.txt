@@ -11,9 +11,6 @@ set(LLVM_SPIRV_TEST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 pkg_search_module(SPIRV_TOOLS SPIRV-Tools)
 if(SPIRV_TOOLS_FOUND)
   find_program(SPIRV_TOOLS_SPIRV_AS NAMES spirv-as PATHS ${SPIRV_TOOLS_PREFIX}/bin)
-  if(SPIRV_TOOLS_SPIRV_AS)
-    set(SPIRV_TOOLS_SPIRV_AS_FOUND True)
-  endif()
 
   find_program(SPIRV_TOOLS_SPIRV_LINK NAMES spirv-link PATHS ${SPIRV_TOOLS_PREFIX}/bin)
   if(SPIRV_TOOLS_SPIRV_LINK)
@@ -21,16 +18,23 @@ if(SPIRV_TOOLS_FOUND)
   endif()
 
   find_program(SPIRV_TOOLS_SPIRV_VAL NAMES spirv-val PATHS ${SPIRV_TOOLS_PREFIX}/bin)
-  if(SPIRV_TOOLS_SPIRV_VAL)
-    set(SPIRV_TOOLS_SPIRV_VAL_FOUND True)
-  endif()
 
   set(SPIRV_TOOLS_BINDIR "${SPIRV_TOOLS_PREFIX}/bin")
+else()
+  # SPIRV-Tool package not found at all try finding directly
+  find_program(SPIRV_TOOLS_SPIRV_AS NAMES spirv-as)
+  find_program(SPIRV_TOOLS_SPIRV_VAL NAMES spirv-val)
+  if (SPIRV_TOOLS_SPIRV_AS)
+    # use directory of found executable
+    get_filename_component(SPIRV_TOOLS_BINDIR "${SPIRV_TOOLS_SPIRV_AS}" DIRECTORY)
+  endif()
 endif()
 
 if(NOT SPIRV_TOOLS_SPIRV_AS)
   message(WARNING "spirv-as not found! SPIR-V assembly tests will not be run.")
   set(SPIRV_TOOLS_SPIRV_AS_FOUND False)
+else()
+  set(SPIRV_TOOLS_SPIRV_AS_FOUND True)
 endif()
 
 if(NOT SPIRV_TOOLS_SPIRV_LINK)
@@ -41,6 +45,8 @@ endif()
 if(NOT SPIRV_TOOLS_SPIRV_VAL)
   message(WARNING "spirv-val not found! SPIR-V generated for test suite will not be validated.")
   set(SPIRV_TOOLS_SPIRV_VAL_FOUND False)
+else()
+  set(SPIRV_TOOLS_SPIRV_VAL_FOUND True)
 endif()
 
 configure_lit_site_cfg(

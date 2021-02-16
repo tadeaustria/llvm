@@ -10,6 +10,7 @@ set(LLVM_LINK_COMPONENTS
   IPO
   IRReader
   AggressiveInstCombine
+  BBSort
   InstCombine
   Instrumentation
   LTO

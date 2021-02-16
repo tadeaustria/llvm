@@ -1,3 +1,4 @@
+// XFAIL: vulkan
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple  %s -o %t.out
 //==------- addrspace_exposure.cpp - SYCL accessor AS exposure test --------==//
 //

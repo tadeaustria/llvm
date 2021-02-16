@@ -198,6 +198,8 @@ install(DIRECTORY ${OPENCL_INCLUDE}/CL
 
 option(SYCL_BUILD_PI_CUDA
   "Enables the CUDA backend for the Plugin Interface" OFF)
+option(SYCL_BUILD_PI_VULKAN
+  "Enables the Vulkan backend for the Plugin Interface" OFF)
 
 # Configure SYCL version macro
 set(sycl_inc_dir ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -367,6 +369,14 @@ if(SYCL_BUILD_PI_CUDA)
 
   add_dependencies(sycl-toolchain libspirv-builtins pi_cuda)
   list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS libspirv-builtins pi_cuda)
+endif()
+
+# Vulkan needs opt for kernel optimization
+if(SYCL_BUILD_PI_VULKAN)
+  add_dependencies(sycl-toolchain 
+      pi_vulkan
+      opt)
+  list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS pi_vulkan opt)
 endif()
 
 # Use it as fake dependency in order to force another command(s) to execute.

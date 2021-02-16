@@ -24,6 +24,7 @@ def do_configure(args):
     llvm_enable_projects = 'clang;llvm-spirv;sycl;opencl-aot;xpti;libdevice'
     libclc_targets_to_build = ''
     sycl_build_pi_cuda = 'OFF'
+    sycl_build_pi_vulkan = 'OFF'
     sycl_werror = 'ON'
     llvm_enable_assertions = 'ON'
     llvm_enable_doxygen = 'OFF'
@@ -41,6 +42,9 @@ def do_configure(args):
         llvm_enable_projects += ';libclc'
         libclc_targets_to_build = 'nvptx64--;nvptx64--nvidiacl'
         sycl_build_pi_cuda = 'ON'
+
+    if args.vulkan:
+        sycl_build_pi_vulkan = 'ON'
 
     if args.no_werror:
         sycl_werror = 'OFF'
@@ -71,6 +75,7 @@ def do_configure(args):
         "-DLLVM_ENABLE_PROJECTS={}".format(llvm_enable_projects),
         "-DLIBCLC_TARGETS_TO_BUILD={}".format(libclc_targets_to_build),
         "-DSYCL_BUILD_PI_CUDA={}".format(sycl_build_pi_cuda),
+        "-DSYCL_BUILD_PI_VULKAN={}".format(sycl_build_pi_vulkan),
         "-DLLVM_BUILD_TOOLS=ON",
         "-DSYCL_ENABLE_WERROR={}".format(sycl_werror),
         "-DCMAKE_INSTALL_PREFIX={}".format(install_dir),
@@ -132,6 +137,7 @@ def main():
     parser.add_argument("-t", "--build-type",
                         metavar="BUILD_TYPE", default="Release", help="build type: Debug, Release")
     parser.add_argument("--cuda", action='store_true', help="switch from OpenCL to CUDA")
+    parser.add_argument("--vulkan", action='store_true', help="switch from OpenCL to Vulkan")
     parser.add_argument("--arm", action='store_true', help="build ARM support rather than x86")
     parser.add_argument("--no-assertions", action='store_true', help="build without assertions")
     parser.add_argument("--docs", action='store_true', help="build Doxygen documentation")

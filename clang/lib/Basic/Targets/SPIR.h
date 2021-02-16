@@ -57,6 +57,24 @@ static const unsigned SYCLAddrSpaceMap[] = {
     0  // ptr64
 };
 
+// generic is not allowed in Vulkan SPIR
+static const unsigned VULKANAddrSpaceMap[] = { 
+    0, // Default
+    9, // opencl_global
+    3, // opencl_local
+    2, // opencl_constant
+    0, // opencl_private
+    0, // opencl_generic
+    5, // opencl_global_device
+    6, // opencl_global_host
+    0, // cuda_device
+    0, // cuda_constant
+    0, // cuda_shared
+    0, // ptr32_sptr
+    0, // ptr32_uptr
+    0  // ptr64
+};
+
 class LLVM_LIBRARY_VISIBILITY SPIRTargetInfo : public TargetInfo {
 public:
   SPIRTargetInfo(const llvm::Triple &Triple, const TargetOptions &)
@@ -64,9 +82,15 @@ public:
     TLSSupported = false;
     VLASupported = false;
     LongWidth = LongAlign = 64;
-    AddrSpaceMap = (Triple.getEnvironment() == llvm::Triple::SYCLDevice)
-                       ? &SYCLAddrSpaceMap
-                       : &SPIRAddrSpaceMap;
+    if (Triple.getEnvironment() == llvm::Triple::SYCLDevice) {
+      if (Triple.isVulkan()) {
+        AddrSpaceMap = &VULKANAddrSpaceMap;
+      } else {
+        AddrSpaceMap = &SYCLAddrSpaceMap;
+      }
+    } else {
+      AddrSpaceMap = &SPIRAddrSpaceMap;
+    }
     UseAddrSpaceMapMangling = true;
     HasLegalHalfType = true;
     HasFloat16 = true;

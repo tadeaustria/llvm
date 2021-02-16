@@ -136,6 +136,15 @@ public:
     return BB;
   }
 
+  // Assume BB contains valid Id.
+  SPIRVBasicBlock *addBasicBlock(SPIRVBasicBlock *BB, SPIRVBasicBlock *After) {
+    Module->add(BB);
+    BB->setParent(this);
+    BBVec.insert(std::find(BBVec.begin(), BBVec.end(), After) + 1, BB);
+    //BBVec.push_back(BB);
+    return BB;
+  }
+
   void encodeChildren(spv_ostream &) const override;
   void encodeExecutionModes(spv_ostream &) const;
   _SPIRV_DCL_ENCDEC

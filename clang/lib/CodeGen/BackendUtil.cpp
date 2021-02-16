@@ -65,6 +65,7 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/ThinLTOBitcodeWriter.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/InstCombine/InstCombiner.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
 #include "llvm/Transforms/Instrumentation/BoundsChecking.h"
@@ -677,6 +678,14 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   PMBuilder.PrepareForThinLTO = CodeGenOpts.PrepareForThinLTO;
   PMBuilder.PrepareForLTO = CodeGenOpts.PrepareForLTO;
   PMBuilder.RerollLoops = CodeGenOpts.RerollLoops;
+  if (TargetTriple.isVulkan()) {
+    PMBuilder.StructurizeCFG = true;
+    // Reinvestigation needed, if this is the right way to fix 
+    // Vulkan problems here
+    // Enables test cases Basic/boolean.cpp, Basic/vector_operators.cpp,
+    // DotProduct/dot_product_vec_test.cpp and KernelParams/union_kernel_param.cpp
+    // llvm::InstCombiner::setVulkanFriendly(true);
+  }
 
   MPM.add(new TargetLibraryInfoWrapperPass(*TLII));
 

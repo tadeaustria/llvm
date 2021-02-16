@@ -2,6 +2,7 @@
 // RUN: | FileCheck %s --check-prefix=CHECK-LLVM
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %RUN_ON_HOST %t.out
+// UNSUPPORTED: vulkan
 
 #include <CL/sycl.hpp>
 #include <algorithm>

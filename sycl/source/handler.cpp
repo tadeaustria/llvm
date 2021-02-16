@@ -269,15 +269,15 @@ void handler::extractArgsAndReqs() {
 // TODO remove once ABI breaking changes are allowed
 void handler::extractArgsAndReqsFromLambda(
     char *LambdaPtr, size_t KernelArgsNum,
-    const detail::kernel_param_desc_t *KernelArgs) {
-  extractArgsAndReqsFromLambda(LambdaPtr, KernelArgsNum, KernelArgs, false);
+    const detail::kernel_param_desc_t *KernelArgs, size_t IndexShift) {
+  extractArgsAndReqsFromLambda(LambdaPtr, KernelArgsNum, KernelArgs, false, IndexShift);
 }
 
 void handler::extractArgsAndReqsFromLambda(
     char *LambdaPtr, size_t KernelArgsNum,
-    const detail::kernel_param_desc_t *KernelArgs, bool IsESIMD) {
+    const detail::kernel_param_desc_t *KernelArgs, bool IsESIMD, size_t IndexShift) {
   const bool IsKernelCreatedFromSource = false;
-  size_t IndexShift = 0;
+  //size_t IndexShift = 0;
   for (size_t I = 0; I < KernelArgsNum; ++I) {
     void *Ptr = LambdaPtr + KernelArgs[I].offset;
     const detail::kernel_param_kind_t &Kind = KernelArgs[I].kind;
