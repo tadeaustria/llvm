@@ -680,7 +680,11 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   PMBuilder.RerollLoops = CodeGenOpts.RerollLoops;
   if (TargetTriple.isVulkan()) {
     PMBuilder.StructurizeCFG = true;
-    llvm::InstCombiner::setVulkanFriendly(true);
+    // Reinvestigation needed, if this is the right way to fix 
+    // Vulkan problems here
+    // Enables test cases Basic/boolean.cpp, Basic/vector_operators.cpp,
+    // DotProduct/dot_product_vec_test.cpp and KernelParams/union_kernel_param.cpp
+    // llvm::InstCombiner::setVulkanFriendly(true);
   }
 
   MPM.add(new TargetLibraryInfoWrapperPass(*TLII));

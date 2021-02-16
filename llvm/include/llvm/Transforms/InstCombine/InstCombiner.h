@@ -50,7 +50,12 @@ public:
   /// Maximum size of array considered when transforming.
   uint64_t MaxArraySizeForCombine = 0;
 
-  /// Maximum size of array considered when transforming.
+  /// Omit some transformations in order to create
+  /// code to be valid after SPIR-V translation
+  /// Reinvestigation needed if this is the right way to do it
+  /// It will be disabled for Vulkan SPIR-V
+  /// Enables test cases Basic/boolean.cpp, Basic/vector_operators.cpp,
+  /// DotProduct/dot_product_vec_test.cpp and KernelParams/union_kernel_param.cpp
   bool VulkanFriendly = false;
 
   /// An IRBuilder that automatically inserts new instructions into the
@@ -353,8 +358,9 @@ public:
                   UndefValue::get(Type::getInt1PtrTy(Ctx)), InsertAt);
   }
 
-  /// Set Parameter that instruction combinations are made
-  /// vulkan friendly
+  /// Set Parameter that is passed through to InstCombiner
+  /// and makes instruction combinations are created 
+  /// Vulkan friendly
   static void setVulkanFriendly(bool Value);
 
   void addToWorklist(Instruction *I) { Worklist.push(I); }
