@@ -8,23 +8,23 @@ source_filename = "main.cpp"
 target datalayout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-n8:16:32:64"
 target triple = "spir64-vulkan-windows-sycldevice"
 
-%struct._ZTS8_arg_0_t._arg_0_t = type { i32 addrspace(10)* }
+%struct._ZTS8_arg_0_t._arg_0_t = type { i32 addrspace(9)* }
 %struct._ZTS8_arg_3_t._arg_3_t = type { %"class._ZTSN2cl4sycl2idILi1EEE.cl::sycl::id" }
 %"class._ZTSN2cl4sycl2idILi1EEE.cl::sycl::id" = type { %"class._ZTSN2cl4sycl6detail5arrayILi1EEE.cl::sycl::detail::array" }
 %"class._ZTSN2cl4sycl6detail5arrayILi1EEE.cl::sycl::detail::array" = type { [1 x i64] }
 
 $_ZTSN2cl4sycl6kernelE = comdat any
 
-@_arg_0 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_0_t._arg_0_t, align 8
-@_arg_3 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_3_t._arg_3_t, align 8
+@_arg_0 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_0_t._arg_0_t, align 8
+@_arg_3 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_3_t._arg_3_t, align 8
 @__spirv_BuiltInGlobalInvocationId = external dso_local local_unnamed_addr addrspace(7) constant <3 x i32>, align 16
 
 ; Function Attrs: norecurse
 define weak_odr dso_local spir_kernel void @_ZTSN2cl4sycl6kernelE() local_unnamed_addr #0 comdat !kernel_arg_buffer_location !5 {
 entry:
-  %0 = load i32 addrspace(10)*, i32 addrspace(10)* addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_0_t._arg_0_t, %struct._ZTS8_arg_0_t._arg_0_t addrspace(10)* @_arg_0, i64 0, i32 0), align 8, !tbaa !6
-  %agg.tmp2.sroa.0.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(10)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
-  %add.ptr.i = getelementptr inbounds i32, i32 addrspace(10)* %0, i64 %agg.tmp2.sroa.0.0.copyload
+  %0 = load i32 addrspace(9)*, i32 addrspace(9)* addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_0_t._arg_0_t, %struct._ZTS8_arg_0_t._arg_0_t addrspace(9)* @_arg_0, i64 0, i32 0), align 8, !tbaa !6
+  %agg.tmp2.sroa.0.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(9)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
+  %add.ptr.i = getelementptr inbounds i32, i32 addrspace(9)* %0, i64 %agg.tmp2.sroa.0.0.copyload
   %1 = load <3 x i32>, <3 x i32> addrspace(7)* @__spirv_BuiltInGlobalInvocationId, align 16, !noalias !11
   %2 = extractelement <3 x i32> %1, i64 0
   %conv.i.i.i.i.i.i = zext i32 %2 to i64
@@ -34,8 +34,8 @@ entry:
   br i1 %cmp.i.inv, label %"entry._ZZZ4mainENK3$_0clERN2cl4sycl7handlerEENKUlNS1_4itemILi1ELb1EEEE_clES5_.exit_crit_edge", label %Flow2
 
 "entry._ZZZ4mainENK3$_0clERN2cl4sycl7handlerEENKUlNS1_4itemILi1ELb1EEEE_clES5_.exit_crit_edge": ; preds = %entry
-  %ptridx.i.i.phi.trans.insert = getelementptr inbounds i32, i32 addrspace(10)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
-  %.pre = load i32, i32 addrspace(10)* %ptridx.i.i.phi.trans.insert, align 4, !tbaa !20
+  %ptridx.i.i.phi.trans.insert = getelementptr inbounds i32, i32 addrspace(9)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
+  %.pre = load i32, i32 addrspace(9)* %ptridx.i.i.phi.trans.insert, align 4, !tbaa !20
   br label %Flow2
 
 Flow2:                                            ; preds = %"entry._ZZZ4mainENK3$_0clERN2cl4sycl7handlerEENKUlNS1_4itemILi1ELb1EEEE_clES5_.exit_crit_edge", %entry
@@ -47,7 +47,7 @@ if.then.i:                                        ; preds = %Flow2
   %rem3.i = and i64 %conv.i.i.i.i.i.i, 3
   %cmp4.i = icmp eq i64 %rem3.i, 0
   %cmp4.i.inv = xor i1 %cmp4.i, true
-  %ptridx.i38.i = getelementptr inbounds i32, i32 addrspace(10)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
+  %ptridx.i38.i = getelementptr inbounds i32, i32 addrspace(9)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
   br i1 %cmp4.i.inv, label %if.else.i, label %Flow
 
 Flow:                                             ; preds = %if.else.i, %if.then.i
@@ -56,15 +56,15 @@ Flow:                                             ; preds = %if.else.i, %if.then
   br i1 %6, label %if.then5.i, label %Flow1
 
 if.then5.i:                                       ; preds = %Flow
-  store i32 4, i32 addrspace(10)* %ptridx.i38.i, align 4, !tbaa !20
+  store i32 4, i32 addrspace(9)* %ptridx.i38.i, align 4, !tbaa !20
   br label %Flow1
 
 if.else.i:                                        ; preds = %if.then.i
-  %7 = load i32, i32 addrspace(10)* %ptridx.i38.i, align 4, !tbaa !20
+  %7 = load i32, i32 addrspace(9)* %ptridx.i38.i, align 4, !tbaa !20
   %conv10.i = mul i32 %7, %2
   %add.i = add nuw nsw i64 %conv.i.i.i.i.i.i, 1
-  %ptridx.i23.i = getelementptr inbounds i32, i32 addrspace(10)* %add.ptr.i, i64 %add.i
-  store i32 %conv10.i, i32 addrspace(10)* %ptridx.i23.i, align 4, !tbaa !20
+  %ptridx.i23.i = getelementptr inbounds i32, i32 addrspace(9)* %add.ptr.i, i64 %add.i
+  store i32 %conv10.i, i32 addrspace(9)* %ptridx.i23.i, align 4, !tbaa !20
   br label %Flow
 
 Flow1:                                            ; preds = %if.then5.i, %Flow
@@ -73,9 +73,9 @@ Flow1:                                            ; preds = %if.then5.i, %Flow
 
 "_ZZZ4mainENK3$_0clERN2cl4sycl7handlerEENKUlNS1_4itemILi1ELb1EEEE_clES5_.exit": ; preds = %Flow2, %Flow1
   %9 = phi i32 [ %3, %Flow2 ], [ %8, %Flow1 ]
-  %ptridx.i.i = getelementptr inbounds i32, i32 addrspace(10)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
+  %ptridx.i.i = getelementptr inbounds i32, i32 addrspace(9)* %add.ptr.i, i64 %conv.i.i.i.i.i.i
   %add17.i = add nsw i32 %9, 2
-  store i32 %add17.i, i32 addrspace(10)* %ptridx.i.i, align 4, !tbaa !20
+  store i32 %add17.i, i32 addrspace(9)* %ptridx.i.i, align 4, !tbaa !20
   ret void
 }
 

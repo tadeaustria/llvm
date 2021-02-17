@@ -8,13 +8,13 @@ source_filename = "main.cpp"
 target datalayout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-n8:16:32:64"
 target triple = "spir64-vulkan-windows-sycldevice"
 
-%struct._ZTS8_arg_0_t._arg_0_t = type { i32 addrspace(10)* }
+%struct._ZTS8_arg_0_t._arg_0_t = type { i32 addrspace(9)* }
 %struct._ZTS8_arg_2_t._arg_2_t = type { %"class._ZTSN2cl4sycl5rangeILi2EEE.cl::sycl::range" }
 %"class._ZTSN2cl4sycl5rangeILi2EEE.cl::sycl::range" = type { %"class._ZTSN2cl4sycl6detail5arrayILi2EEE.cl::sycl::detail::array" }
 %"class._ZTSN2cl4sycl6detail5arrayILi2EEE.cl::sycl::detail::array" = type { [2 x i64] }
 %struct._ZTS8_arg_3_t._arg_3_t = type { %"class._ZTSN2cl4sycl2idILi2EEE.cl::sycl::id" }
 %"class._ZTSN2cl4sycl2idILi2EEE.cl::sycl::id" = type { %"class._ZTSN2cl4sycl6detail5arrayILi2EEE.cl::sycl::detail::array" }
-%struct._ZTS8_arg_4_t._arg_4_t = type { i32 addrspace(10)* }
+%struct._ZTS8_arg_4_t._arg_4_t = type { i32 addrspace(9)* }
 %struct._ZTS8_arg_6_t._arg_6_t = type { %"class._ZTSN2cl4sycl5rangeILi3EEE.cl::sycl::range" }
 %"class._ZTSN2cl4sycl5rangeILi3EEE.cl::sycl::range" = type { %"class._ZTSN2cl4sycl6detail5arrayILi3EEE.cl::sycl::detail::array" }
 %"class._ZTSN2cl4sycl6detail5arrayILi3EEE.cl::sycl::detail::array" = type { [3 x i64] }
@@ -25,23 +25,23 @@ $"_ZTSZZ4mainENK3$_0clERN2cl4sycl7handlerEE11dim2_subscr" = comdat any
 
 $"_ZTSZZ4mainENK3$_0clERN2cl4sycl7handlerEE11dim3_subscr" = comdat any
 
-@_arg_0 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_0_t._arg_0_t, align 8
-@_arg_2 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_2_t._arg_2_t, align 8
-@_arg_3 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_3_t._arg_3_t, align 8
+@_arg_0 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_0_t._arg_0_t, align 8
+@_arg_2 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_2_t._arg_2_t, align 8
+@_arg_3 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_3_t._arg_3_t, align 8
 @__spirv_BuiltInGlobalInvocationId = external dso_local local_unnamed_addr addrspace(7) constant <3 x i32>, align 16
 @__spirv_BuiltInNumWorkgroups = external dso_local local_unnamed_addr addrspace(7) constant <3 x i32>, align 16
 @__spirv_BuiltInWorkgroupSize = external dso_local local_unnamed_addr addrspace(7) constant <3 x i32>, align 16
-@_arg_4 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_4_t._arg_4_t, align 8
-@_arg_6 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_6_t._arg_6_t, align 8
-@_arg_7 = external dso_local local_unnamed_addr addrspace(10) global %struct._ZTS8_arg_7_t._arg_7_t, align 8
+@_arg_4 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_4_t._arg_4_t, align 8
+@_arg_6 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_6_t._arg_6_t, align 8
+@_arg_7 = external dso_local local_unnamed_addr addrspace(9) global %struct._ZTS8_arg_7_t._arg_7_t, align 8
 
 ; Function Attrs: norecurse
 define weak_odr dso_local spir_kernel void @"_ZTSZZ4mainENK3$_0clERN2cl4sycl7handlerEE11dim2_subscr"() local_unnamed_addr #0 comdat !kernel_arg_addr_space !5 !kernel_arg_access_qual !5 !kernel_arg_type !5 !kernel_arg_base_type !5 !kernel_arg_type_qual !5 !kernel_arg_buffer_location !5 {
 entry:
-  %0 = load i32 addrspace(10)*, i32 addrspace(10)* addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_0_t._arg_0_t, %struct._ZTS8_arg_0_t._arg_0_t addrspace(10)* @_arg_0, i64 0, i32 0), align 8, !tbaa !6
-  %agg.tmp1.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_2_t._arg_2_t, %struct._ZTS8_arg_2_t._arg_2_t addrspace(10)* @_arg_2, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
-  %agg.tmp2.sroa.0.sroa.0.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(10)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
-  %agg.tmp2.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(10)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
+  %0 = load i32 addrspace(9)*, i32 addrspace(9)* addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_0_t._arg_0_t, %struct._ZTS8_arg_0_t._arg_0_t addrspace(9)* @_arg_0, i64 0, i32 0), align 8, !tbaa !6
+  %agg.tmp1.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_2_t._arg_2_t, %struct._ZTS8_arg_2_t._arg_2_t addrspace(9)* @_arg_2, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
+  %agg.tmp2.sroa.0.sroa.0.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(9)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
+  %agg.tmp2.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_3_t._arg_3_t, %struct._ZTS8_arg_3_t._arg_3_t addrspace(9)* @_arg_3, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
   %1 = load <3 x i32>, <3 x i32> addrspace(7)* @__spirv_BuiltInGlobalInvocationId, align 16, !noalias !11
   %2 = extractelement <3 x i32> %1, i64 1
   %conv.i.i.i.i.i.i = zext i32 %2 to i64
@@ -57,8 +57,8 @@ entry:
   %mul.1.i.i.i.i = mul i64 %add6.i.i.i.i, %agg.tmp1.sroa.0.sroa.2.0.copyload
   %add.1.i.i.i.i = add i64 %agg.tmp2.sroa.0.sroa.2.0.copyload, %conv.i.i1.i.i.i.i
   %add6.1.i.i.i.i = add i64 %add.1.i.i.i.i, %mul.1.i.i.i.i
-  %ptridx.i.i.i = getelementptr inbounds i32, i32 addrspace(10)* %0, i64 %add6.1.i.i.i.i
-  %call3.ascast.i.i = addrspacecast i32 addrspace(10)* %ptridx.i.i.i to i32*
+  %ptridx.i.i.i = getelementptr inbounds i32, i32 addrspace(9)* %0, i64 %add6.1.i.i.i.i
+  %call3.ascast.i.i = addrspacecast i32 addrspace(9)* %ptridx.i.i.i to i32*
   %8 = load i32, i32* %call3.ascast.i.i, align 4, !tbaa !25
   %sub8.i.i.i = add i32 %8, %3
   %conv5.i = add i32 %sub8.i.i.i, %mul.i.i.i
@@ -69,12 +69,12 @@ entry:
 ; Function Attrs: norecurse
 define weak_odr dso_local spir_kernel void @"_ZTSZZ4mainENK3$_0clERN2cl4sycl7handlerEE11dim3_subscr"() local_unnamed_addr #0 comdat !kernel_arg_addr_space !5 !kernel_arg_access_qual !5 !kernel_arg_type !5 !kernel_arg_base_type !5 !kernel_arg_type_qual !5 !kernel_arg_buffer_location !5 {
 entry:
-  %0 = load i32 addrspace(10)*, i32 addrspace(10)* addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_4_t._arg_4_t, %struct._ZTS8_arg_4_t._arg_4_t addrspace(10)* @_arg_4, i64 0, i32 0), align 8, !tbaa !27
-  %agg.tmp1.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_6_t._arg_6_t, %struct._ZTS8_arg_6_t._arg_6_t addrspace(10)* @_arg_6, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
-  %agg.tmp1.sroa.0.sroa.3.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_6_t._arg_6_t, %struct._ZTS8_arg_6_t._arg_6_t addrspace(10)* @_arg_6, i64 0, i32 0, i32 0, i32 0, i64 2), align 8
-  %agg.tmp2.sroa.0.sroa.0.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(10)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
-  %agg.tmp2.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(10)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
-  %agg.tmp2.sroa.0.sroa.3.0.copyload = load i64, i64 addrspace(10)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(10)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 2), align 8
+  %0 = load i32 addrspace(9)*, i32 addrspace(9)* addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_4_t._arg_4_t, %struct._ZTS8_arg_4_t._arg_4_t addrspace(9)* @_arg_4, i64 0, i32 0), align 8, !tbaa !27
+  %agg.tmp1.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_6_t._arg_6_t, %struct._ZTS8_arg_6_t._arg_6_t addrspace(9)* @_arg_6, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
+  %agg.tmp1.sroa.0.sroa.3.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_6_t._arg_6_t, %struct._ZTS8_arg_6_t._arg_6_t addrspace(9)* @_arg_6, i64 0, i32 0, i32 0, i32 0, i64 2), align 8
+  %agg.tmp2.sroa.0.sroa.0.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(9)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 0), align 8
+  %agg.tmp2.sroa.0.sroa.2.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(9)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 1), align 8
+  %agg.tmp2.sroa.0.sroa.3.0.copyload = load i64, i64 addrspace(9)* getelementptr inbounds (%struct._ZTS8_arg_7_t._arg_7_t, %struct._ZTS8_arg_7_t._arg_7_t addrspace(9)* @_arg_7, i64 0, i32 0, i32 0, i32 0, i64 2), align 8
   %1 = load <3 x i32>, <3 x i32> addrspace(7)* @__spirv_BuiltInGlobalInvocationId, align 16, !noalias !29
   %2 = extractelement <3 x i32> %1, i64 2
   %conv.i.i.i.i.i.i = zext i32 %2 to i64
@@ -99,8 +99,8 @@ entry:
   %mul.2.i.i.i.i = mul i64 %add6.1.i.i.i.i, %agg.tmp1.sroa.0.sroa.3.0.copyload
   %add.2.i.i.i.i = add i64 %agg.tmp2.sroa.0.sroa.3.0.copyload, %conv.i.i1.i.i.i.i
   %add6.2.i.i.i.i = add i64 %add.2.i.i.i.i, %mul.2.i.i.i.i
-  %ptridx.i.i.i = getelementptr inbounds i32, i32 addrspace(10)* %0, i64 %add6.2.i.i.i.i
-  %call3.ascast.i.i = addrspacecast i32 addrspace(10)* %ptridx.i.i.i to i32*
+  %ptridx.i.i.i = getelementptr inbounds i32, i32 addrspace(9)* %0, i64 %add6.2.i.i.i.i
+  %call3.ascast.i.i = addrspacecast i32 addrspace(9)* %ptridx.i.i.i to i32*
   %10 = load i32, i32* %call3.ascast.i.i, align 4, !tbaa !25
   %add20.i.i.i = add i32 %10, %4
   %conv7.i = add i32 %add20.i.i.i, %add.i.i.i
